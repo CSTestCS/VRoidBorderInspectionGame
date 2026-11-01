@@ -118,6 +118,9 @@ export class Surface {
     const n = triList ? triList.length : this.triCount;
     const uv = this.uv;
     let touched = false;
+    if (!layer.visit) { layer.visit = new Uint32Array(S * S); layer.stamp = 0; }
+    const visit = layer.visit;
+    const stamp = ++layer.stamp;
     for (let k = 0; k < n; k++) {
       const t = triList ? triList[k] : k;
       const ex = cen[t * 3] - cx, ey = cen[t * 3 + 1] - cy, ez = cen[t * 3 + 2] - cz;
@@ -155,7 +158,10 @@ export class Surface {
           const dz = w0 * az + w1 * bz + w2 * qz - cz;
           const d2 = opts.distFn ? opts.distFn(dx, dy, dz) : dx * dx + dy * dy + dz * dz;
           if (d2 > r2) continue;
-          cb((y * S + x) * 4, Math.sqrt(d2) / radius, dx, dy, dz, facing);
+          const pi = y * S + x;
+          if (visit[pi] === stamp) continue;
+          visit[pi] = stamp;
+          cb(pi * 4, Math.sqrt(d2) / radius, dx, dy, dz, facing);
           touched = true;
         }
       }

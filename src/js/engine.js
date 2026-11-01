@@ -84,7 +84,7 @@ export class Engine {
     this.scene = scene;
     this.renderPass.scene = scene;
     if (!scene.environment) scene.environment = this.envMap;
-    if (!this.camera.parent) scene.add(this.camera);
+    scene.add(this.camera);
   }
 
   resize() {
