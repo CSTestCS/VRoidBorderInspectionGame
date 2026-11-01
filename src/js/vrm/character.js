@@ -142,6 +142,7 @@ export class Character {
     }
 
     this.applyColors(look);
+    this.chestDepth = this._measureChestDepth();
     try { applyExpressionConfig(this.vrm, cfg.expressions); } catch (e) { console.warn('expression config', e); }
     this.animator = new Animator(this.vrm);
     this.face = new Face(this.vrm);
@@ -318,6 +319,29 @@ export class Character {
     }
   }
 
+  // How far the front of the chest (incl. worn tops) sticks out past the chest bone.
+  _measureChestDepth() {
+    const chest = this.vrm.humanoid.getRawBoneNode('upperChest') || this.vrm.humanoid.getRawBoneNode('chest');
+    if (!chest) return 0.12;
+    this.vrm.scene.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(this.vrm.scene.matrixWorld).invert();
+    const c = chest.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+    const lim = { body: 0, top: 0 };
+    const v = new THREE.Vector3();
+    const scan = (geom, key) => {
+      const p = geom.attributes.position;
+      for (let i = 0; i < p.count; i += 2) {
+        v.fromBufferAttribute(p, i);
+        if (Math.abs(v.y - (c.y - 0.06)) < 0.12 && Math.abs(v.x - c.x) < 0.14) lim[key] = Math.max(lim[key], v.z - c.z);
+      }
+    };
+    if (this.surfBody) scan(this.surfBody.geometry, 'body');
+    for (const it of this.items.values()) if (['top', 'outer', 'onepiece'].includes(it.category)) for (const m of it.meshes) scan(m.geometry, 'top');
+    this.chestDepthBody = lim.body;
+    this.chestDepthClothed = Math.max(lim.body, lim.top);
+    return this.chestDepthClothed;
+  }
+
   // Static snapshot of an item as currently posed, centred, in model units.
   // Shares the item's materials so colours, stains and fabric carry over.
   snapshotItem(id) {
@@ -366,6 +390,10 @@ export class Character {
 
   update(dt) {
     this.animator.talking = this.face.time < this.face.talkUntil;
+    // clearance for folded arms depends on what is currently worn
+    const clothed = [...this.items.values()].some((it) => !it.removed && ['top', 'outer', 'onepiece'].includes(it.category));
+    const depth = (clothed ? this.chestDepthClothed : this.chestDepthBody) ?? 0.12;
+    this.animator.frontOffset = Math.max(0, depth - 0.1);
     this.animator.update(dt);
     this.face.update(dt);
     this.vrm.update(dt);

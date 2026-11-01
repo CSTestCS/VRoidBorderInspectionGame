@@ -121,6 +121,24 @@ function twoBoneIK(A, B, C, target, pole, weight) {
   }
 }
 
+// Orient a hand so its fingers point along `fingerDir` and its palm faces
+// `palmDir` (world space). VRM normalized hands: fingers along +X (left) /
+// -X (right), palm facing -Y in the T-pose.
+const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
+function orientHand(hand, sgn, fingerDir, palmDir, weight) {
+  if (weight <= 0.001) return;
+  const F = fingerDir.clone().normalize();
+  const P = palmDir.clone().addScaledVector(F, -palmDir.dot(F)).normalize();
+  const fl = new THREE.Vector3(sgn, 0, 0), pl = new THREE.Vector3(0, -1, 0);
+  _m1.makeBasis(fl, pl, fl.clone().cross(pl));
+  _m2.makeBasis(F, P, F.clone().cross(P));
+  const qWorld = new THREE.Quaternion().setFromRotationMatrix(_m2.multiply(_m1.transpose()));
+  hand.parent.getWorldQuaternion(_qc);
+  const qLocal = _qc.invert().multiply(qWorld);
+  hand.quaternion.slerp(qLocal, weight);
+  hand.updateMatrixWorld(true);
+}
+
 // ---- gestures: additive FK + optional IK hand targets over time --------------
 // fk(t, s) returns { bone: [x,y,z] } offsets; ik(t, s) returns { left|right: { bone, off:[x,y,z] } }
 // where off is in the character's local space relative to that bone; s = side (+1/-1).
@@ -154,8 +172,13 @@ const ARM_STYLES = {
   relaxed: null,
   clasped: { pole: [0.6, -0.8, -0.1], curl: 0.5, left: { bone: 'hips', off: [0.02, -0.06, 0.17] }, right: { bone: 'hips', off: [-0.02, -0.06, 0.17] } },
   behind: { pole: [0.6, -0.6, -0.5], curl: 0.5, left: { bone: 'hips', off: [0.05, -0.02, -0.15] }, right: { bone: 'hips', off: [-0.05, -0.02, -0.15] } },
-  crossed: { pole: [0.55, -0.85, -0.1], curl: 0.75, bend: 0.25, left: { bone: 'chest', off: [-0.155, -0.11, 0.15] }, right: { bone: 'chest', off: [0.155, -0.075, 0.185] } },
-  hug: { pole: [0.35, -0.9, 0.3], curl: 0.9, bend: 0.8, left: { bone: 'rightUpperArm', off: [0.06, -0.06, 0.085] }, right: { bone: 'leftUpperArm', off: [-0.06, -0.09, 0.1] } },
+  crossed: { curl: 0.85, front: true,
+    // forearms stacked just below the chest, elbows forward at the sides, each hand over the other elbow
+    left: { bone: 'chest', off: [-0.055, -0.02, 0.15], elbow: [0.15, -0.02, 0.07], finger: [-0.75, 0.2, -0.6], palm: [0.15, -0.25, -1] },
+    right: { bone: 'chest', off: [0.06, 0.005, 0.19], elbow: [-0.15, 0.0, 0.09], finger: [0.75, 0.2, -0.6], palm: [-0.15, -0.25, -1] } },
+  hug: { curl: 0.9, front: true,
+    left: { bone: 'chest', off: [-0.07, 0.06, 0.14], elbow: [0.14, -0.02, 0.08], finger: [-0.65, 0.5, -0.55], palm: [0.2, -0.1, -1] },
+    right: { bone: 'chest', off: [0.075, 0.085, 0.17], elbow: [-0.14, 0.0, 0.1], finger: [0.65, 0.5, -0.55], palm: [-0.2, -0.1, -1] } },
   hipHand: { pole: [0.9, -0.2, -0.45], curl: 0.3, right: { bone: 'hips', off: [-0.17, 0.07, 0.02] } },
   modest: { pole: [0.55, -0.8, -0.05], curl: 0.4, left: { bone: 'hips', off: [0.04, -0.12, 0.15] }, right: { bone: 'hips', off: [-0.04, -0.1, 0.16] } },
 };
@@ -188,11 +211,12 @@ export class Animator {
     this.armStyle = 'relaxed'; this.armStyleW = { left: 0, right: 0 }; this.styleTargets = { left: null, right: null };
     this.ikW = { left: 0, right: 0 };
     this.curl = { left: 0, right: 0 };
+    this.frontOffset = 0; // extra forward clearance for arms held in front (big chest / bulky top)
     this.footAnchors = null; this.anchorTimer = 0.6; this.legIK = 0;
     this.personality = { sway: 1, swaySpeed: 1, slouch: 0.03, headTilt: 0, fidget: 0.12, stance: 0.04, breath: 1.7, gesture: 0.5, styles: ['relaxed', 'clasped'], walk: 1 };
     const hips = this.h.getNormalizedBoneNode('hips');
     this.hipsRest = hips ? hips.position.clone() : new THREE.Vector3();
-    const names = new Set(['hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftShoulder', 'rightShoulder', 'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand', 'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg', 'leftFoot', 'rightFoot', 'leftToes', 'rightToes']);
+    const names = new Set(['leftThumbMetacarpal', 'leftThumbDistal', 'rightThumbMetacarpal', 'rightThumbDistal', 'hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftShoulder', 'rightShoulder', 'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand', 'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg', 'leftFoot', 'rightFoot', 'leftToes', 'rightToes']);
     for (const p of Object.values(POSES)) for (const k of Object.keys(p)) names.add(k);
     for (const n of names) {
       const node = this.h.getNormalizedBoneNode(n);
@@ -281,6 +305,11 @@ export class Animator {
         add('left' + f2 + JOINTS[j], 0, 0, -this.curl.left * (0.5 + j * 0.25));
         add('right' + f2 + JOINTS[j], 0, 0, this.curl.right * (0.5 + j * 0.25));
       }
+      // thumbs fold in against the palm while gripping
+      for (const [j, k] of [['ThumbMetacarpal', 0.35], ['ThumbProximal', 0.5], ['ThumbDistal', 0.6]]) {
+        add('left' + j, 0, -this.curl.left * k * 0.6, -this.curl.left * k);
+        add('right' + j, 0, this.curl.right * k * 0.6, this.curl.right * k);
+      }
       const f = Math.sin(time * 0.9 + 2) * 0.06;
       add('leftIndexProximal', 0, 0, -f); add('rightIndexProximal', 0, 0, f);
     }
@@ -363,14 +392,22 @@ export class Animator {
     const rootQ = root.getWorldQuaternion(new THREE.Quaternion());
     const want = { left: null, right: null }, wantW = { left: 0, right: 0 };
     const poleOf = { left: null, right: null }, curlOf = { left: 0, right: 0 }, bendOf = { left: 0.15, right: 0.15 };
+    const elbowOf = { left: null, right: null }, handOf = { left: null, right: null };
     // idle holding style
     const style = this.standing && !this.walking && this.pose !== 'armsUp' && this.pose !== 'armsOut' && this.pose !== 'handOver' ? ARM_STYLES[this.mood === 'cold' || this.mood === 'wet' ? (this.armStyle === 'relaxed' ? 'hug' : this.armStyle === 'hipHand' ? 'hug' : this.armStyle) : this.armStyle] : null;
     for (const side of ['left', 'right']) {
       const st = style?.[side];
       this.armStyleW[side] = damp(this.armStyleW[side], st ? 1 : 0, 3, dt);
-      if (st) this.styleTargets[side] = { ...st, pole: style.pole, curl: style.curl, bend: style.bend };
+      if (st) this.styleTargets[side] = { ...st, pole: style.pole, curl: style.curl, bend: style.bend, front: style.front };
       const s = this.styleTargets[side];
-      if (s && this.armStyleW[side] > 0.01) { want[side] = this._localToWorldFrom(s.bone, s.off, new THREE.Vector3()); wantW[side] = this.armStyleW[side]; poleOf[side] = s.pole; curlOf[side] = s.curl || 0; bendOf[side] = s.bend || 0.15; }
+      if (s && this.armStyleW[side] > 0.01) {
+        // styles held in front of the body move forward for deeper chests / bulky clothes
+        const fz = s.front ? this.frontOffset : 0;
+        want[side] = this._localToWorldFrom(s.bone, [s.off[0], s.off[1], s.off[2] + fz], new THREE.Vector3());
+        wantW[side] = this.armStyleW[side]; poleOf[side] = s.pole; curlOf[side] = s.curl || 0; bendOf[side] = s.bend || 0.15;
+        if (s.elbow) elbowOf[side] = this._localToWorldFrom(s.bone, [s.elbow[0], s.elbow[1], s.elbow[2] + fz * 0.8], new THREE.Vector3());
+        if (s.finger) handOf[side] = { finger: V(...s.finger).applyQuaternion(rootQ), palm: V(...s.palm).applyQuaternion(rootQ) };
+      }
     }
     // gestures override
     for (const gs of this.gestures) {
@@ -380,11 +417,11 @@ export class Animator {
         if (!p) continue;
         const w = tg.w ?? 1;
         if (want[side] && wantW[side] > 0) want[side].lerp(p, w / Math.max(1e-3, Math.max(w, wantW[side]))); else want[side] = p;
-        if (w > 0.3) { poleOf[side] = tg.pole || null; curlOf[side] = tg.curl ?? 0.3; bendOf[side] = tg.bend ?? 0.15; }
+        if (w > 0.3) { poleOf[side] = tg.pole || null; curlOf[side] = tg.curl ?? 0.3; bendOf[side] = tg.bend ?? 0.15; elbowOf[side] = null; handOf[side] = null; }
         wantW[side] = Math.max(wantW[side], w);
       }
     }
-    for (const src of [this.handTargets, this.reach]) if (src) for (const side of ['left', 'right']) if (src[side]) { want[side] = src[side].clone(); wantW[side] = 1; }
+    for (const src of [this.handTargets, this.reach]) if (src) for (const side of ['left', 'right']) if (src[side]) { want[side] = src[side].clone(); wantW[side] = 1; elbowOf[side] = null; handOf[side] = null; }
     for (const side of ['left', 'right']) {
       this.ikW[side] = damp(this.ikW[side], wantW[side], 8, dt);
       if (!want[side] || this.ikW[side] < 0.01) continue;
@@ -393,12 +430,15 @@ export class Animator {
       if (!A || !B || !C) continue;
       const sgn = side === 'left' ? 1 : -1;
       const pp = poleOf[side] || [0.7, -0.6, -0.5];
-      const pole = V(pp[0] * sgn, pp[1], pp[2]).applyQuaternion(rootQ);
+      // elbow target -> pole points from the shoulder toward where the elbow should be
+      const pole = elbowOf[side] ? elbowOf[side].clone().sub(wpos(A)) : V(pp[0] * sgn, pp[1], pp[2]).applyQuaternion(rootQ);
       twoBoneIK(A, B, C, want[side], pole, this.ikW[side]);
-      // hand continues the forearm instead of keeping its dangling idle angle
-      _qa.identity();
-      _qb.setFromEuler(_e.set(0, -0.2 * bendOf[side] * sgn, -bendOf[side] * sgn));
-      C.quaternion.slerp(_qb, this.ikW[side] * 0.85);
+      if (handOf[side]) orientHand(C, sgn, handOf[side].finger, handOf[side].palm, this.ikW[side]);
+      else {
+        // hand continues the forearm instead of keeping its dangling idle angle
+        _qb.setFromEuler(_e.set(0, -0.2 * bendOf[side] * sgn, -bendOf[side] * sgn));
+        C.quaternion.slerp(_qb, this.ikW[side] * 0.85);
+      }
       this.curl[side] = damp(this.curl[side], curlOf[side] * this.ikW[side], 6, dt);
     }
   }
