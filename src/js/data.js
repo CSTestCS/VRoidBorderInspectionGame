@@ -18,32 +18,78 @@ export const PURPOSES = [
   'The radiation counts keep climbing back home.',
   'I want my kids to grow up somewhere with walls.',
   'I was told this is the last safe city.',
+  "Our well ran dry three weeks ago. We've been drinking rainwater.",
+  'The militia took everything we had. There is nothing to go back to.',
+  "I can fix generators, pumps, radios. Anything with wires.",
+  'My husband is already inside. They said I could join him.',
+  "I'm a teacher. Children need teachers, even now.",
+  "The sickness reached our town. I left before it got me.",
+  "I don't want much. A bed and four walls.",
+  "Honestly? I'm tired of being afraid every night.",
+  'I used to farm. I can grow food in your hydroponics.',
+  'A radio broadcast said the Haven was taking people in.',
+  'The bridge at Ironbridge collapsed. We were cut off for months.',
+  "I've got nobody left out there. Nobody.",
+  "I'm a cook. I can make anything taste like something.",
+  'My mother told me to come here before she passed.',
+  "The traders stopped coming. That's how you know a town is dying.",
 ];
 
-export const GREETINGS = ['Hello...', 'Is this the way in?', 'Please, I need to get inside.', "I've got my papers.", 'Evening, officer.', "I hope I'm not too late.", 'Hi. Here you go.'];
-export const HANDOVER = ['Here is my ID.', 'This is all I have.', 'My card.', "Here. It's a bit worn.", 'Here you go, officer.'];
-export const NAME_HESITATE = ['Uh... ', 'It is... ', 'Um, ', 'My name? ', ''];
-export const NO_CONTRABAND = ["No, nothing.", "Nothing like that.", "Just my clothes.", "No, sir.", "No. I swear."];
-export const NO_CONTRABAND_LIE = ["N-no. Nothing.", "Nothing. Why?", "No... nothing at all.", "What? No."];
-export const NO_BITE = ["No. I've been careful.", "Never.", "No, nothing like that.", "I'm healthy, I promise."];
-export const NO_BITE_LIE = ["No... why would you ask that?", "I-I'm fine.", "No. Can we hurry this up?", "It's nothing. Just tired."];
+export const GREETINGS = [
+  'Hello...', 'Is this the way in?', 'Please, I need to get inside.', "I've got my papers.", 'Evening, officer.', "I hope I'm not too late.", 'Hi. Here you go.',
+  'Hello? Can you hear me through this thing?', "Finally. I didn't think this place was real.", 'Good... morning? I lost track of time.', 'Is the line always this long?',
+  "Officer. I've come a long way.", "Please tell me I'm in the right place.", 'Hey. Uh, hi.', "I was told to report here.", 'Is it safe in there? Really safe?',
+  "Hi there. Sorry, I'm a bit of a mess.", "Hello, sir. Or ma'am. Sorry, the glass.", 'Thank god, a real person.', "Don't shoot, I'm friendly.",
+];
+export const HANDOVER = [
+  'Here is my ID.', 'This is all I have.', 'My card.', "Here. It's a bit worn.", 'Here you go, officer.', 'Careful, it is the only one I have.',
+  'It got wet once, sorry.', "Here. Everything's on there.", 'Do you need anything else?', 'My papers, as asked.', "Here. I've kept it safe the whole way.",
+];
+export const NAME_HESITATE = ['Uh... ', 'It is... ', 'Um, ', 'My name? ', '', 'Right, it is ', 'Oh, uh, '];
+export const NO_CONTRABAND = ['No, nothing.', 'Nothing like that.', 'Just my clothes.', 'No, sir.', 'No. I swear.', 'Only what I am wearing.', "Nothing. You can check.", "No. I traded everything for food.", "Nope. Nothing dangerous."];
+export const NO_CONTRABAND_LIE = ['N-no. Nothing.', 'Nothing. Why?', 'No... nothing at all.', 'What? No.', "Why would I carry anything?", 'Of course not.', "No, no. Definitely not."];
+export const NO_BITE = ["No. I've been careful.", 'Never.', 'No, nothing like that.', "I'm healthy, I promise.", 'No bites. No scratches.', "I stayed away from the dead zones.", "No. I'd know."];
+export const NO_BITE_LIE = ['No... why would you ask that?', "I-I'm fine.", 'No. Can we hurry this up?', "It's nothing. Just tired.", "It's a rash. Just a rash.", "I'm not sick. I'm not."];
 
+// favor-aware reaction pools: { neutral, friendly, hostile }
 export const REACT = {
   stripStart: ['Do I really have to...?', 'Okay... okay.', "It's freezing in here.", 'Fine. Just be quick.', '...Alright.'],
-  confiscate: ['Hey, I need that!', 'Fine. Take it.', "That's for protection!", "Come on...", "It's not what it looks like."],
-  returnItem: ['Thank you.', 'Thanks. That means a lot.', 'Oh, good.'],
-  burn: ['Those are my only clothes!', "Wait - you're burning it?", 'Oh no...', "Was it that bad?"],
-  hoseStart: ['Ah! Cold!', "Gah - that's freezing!", 'Hey!', 'Ack!'],
-  hoseFace: ['Pfft - my face!', 'Mmph!', "Hey, watch it!"],
-  armsUp: ['Like this?', 'Okay.', 'Sure.'],
-  turn: ['Turning around.', 'Okay.', 'Like this?'],
-  dressed: ['Finally. Thank you.', 'Much better.', 'Ah, warm clothes.'],
-  admit: ['Thank you! Thank you so much!', "I'm really in?", 'Finally... safe.', 'Thank you, officer.'],
-  deny: ['No! Please!', "You can't do this!", 'Please, I have nowhere to go!', "You'll regret this."],
-  tank: ["A tank? What's wrong with me?", 'Is it serious?', "I don't want to go in there...", 'Will I be okay?'],
-  interro: ['Questioning? For what?', 'I can explain!', "This is a mistake.", 'Wait, wait...'],
-  release: ['I feel... better.', 'How long was I in there?', 'Thank you, doctor.'],
+  confiscate: { neutral: ['Hey, I need that!', 'Fine. Take it.', "That's for protection!", 'Come on...', "It's not what it looks like."], friendly: ['I understand. Rules are rules.', "Okay. I trust you.", 'Fair enough.'], hostile: ['Thief!', "Of course you'd take it.", "You're enjoying this, aren't you?"] },
+  returnItem: { neutral: ['Thank you.', 'Thanks. That means a lot.', 'Oh, good.'], friendly: ['Thank you so much!', "You're kind. Thank you.", 'I was so worried about that.'], hostile: ['Finally.', 'Took you long enough.'] },
+  burn: { neutral: ['Those are my only clothes!', "Wait - you're burning it?", 'Oh no...', 'Was it that bad?'], friendly: ["If you say so... I trust you.", 'Better safe, I guess.'], hostile: ["Unbelievable.", 'You just burn whatever you like?', "I'll freeze because of you."] },
+  hoseStart: ['Ah! Cold!', "Gah - that's freezing!", 'Hey!', 'Ack!', 'Eek! Warn me next time!', 'Cold cold cold!'],
+  hoseFace: ['Pfft - my face!', 'Mmph!', 'Hey, watch it!', 'Not the eyes!', 'I can\'t breathe!'],
+  flashlight: ['Ow, my eyes!', 'Hey, that is bright!', 'Could you not?', 'Ugh, I am seeing spots.'],
+  armsUp: ['Like this?', 'Okay.', 'Sure.', 'Arms up, got it.', 'How long do I hold this?'],
+  armsDown: ['Thanks.', 'Phew.', 'Okay.'],
+  turn: ['Turning around.', 'Okay.', 'Like this?', 'This way?'],
+  dressed: { neutral: ['Finally. Thank you.', 'Much better.', 'Ah, warm clothes.'], friendly: ['Thank you, really.', 'You have been kind.', 'Warm at last!'], hostile: ['About time.', 'Whatever.'] },
+  admit: { neutral: ['Thank you! Thank you so much!', "I'm really in?", 'Finally... safe.', 'Thank you, officer.'], friendly: ["You're a good person. I won't forget this.", 'Thank you for treating me like a human.', 'I hope we meet again inside!'], hostile: ['Took long enough.', 'Great. Can I go now?', "Don't expect a thank you."] },
+  admire: ['You saved my life. I mean it.', 'I would have died out there. Thank you, for everything.', "I'll tell everyone inside what you did for me.", "You didn't give up on me. Thank you."],
+  deny: { neutral: ['No! Please!', "You can't do this!", 'Please, I have nowhere to go!', "You'll regret this."], friendly: ["I... I thought you were on my side.", 'Please... reconsider. Please.'], hostile: ["You'll pay for this.", 'I hope you rot in there.', 'Monster.'] },
+  tank: { neutral: ["A tank? What's wrong with me?", 'Is it serious?', "I don't want to go in there...", 'Will I be okay?'], friendly: ["If you think it is best... okay.", 'Please look after me.'], hostile: ['You are locking me in a tube?!', 'This is insane.'] },
+  interro: { neutral: ['Questioning? For what?', 'I can explain!', 'This is a mistake.', 'Wait, wait...'], friendly: ["I'll tell them everything, I promise.", 'Okay... I understand.'], hostile: ["You're making a big mistake.", 'I knew it. You never believed me.'] },
+  release: ['I feel... better.', 'How long was I in there?', 'Thank you, doctor.', 'My head is so clear now.', 'Am I cured? Really?'],
+  // clothing removal, by category (f = women, m = men)
+  remove: {
+    accessory: ['Here.', 'Careful with those.', 'Sure, take it.', "Don't lose that."],
+    glasses: ['Careful, I can barely see without them.', "Don't scratch them, please.", 'Everything is blurry now.'],
+    hat: ['There you go.', 'My hair is a mess under there.'],
+    gloves: ['Here.', 'My hands are freezing now.'],
+    shoes: ['Finally, these were killing me.', 'Sorry about the smell.', 'Mind the mud.', 'There.'],
+    socks: ['The floor is so cold.', 'Brr. Okay.', 'Ugh, these were soaked.'],
+    outer: ['Here. It is heavy.', 'Careful, it is old.', 'Okay, take it.'],
+    top_f: ["Do I have to? ...Okay. Please don't stare.", "This is... really embarrassing.", "Can you at least look away for a second?", "Oh god. Okay. Okay."],
+    top_m: ['Fine.', 'Here.', "It's cold in here, you know."],
+    bottom_f: ["My skirt too? Seriously...", "Please... this is humiliating.", "Don't look. Please don't look.", "I can't believe this..."],
+    bottom_m: ['Really? ...Fine.', "This is awkward.", 'Okay, okay. No laughing.'],
+    onepiece_f: ["That's... all I'm wearing.", "Please, make it quick. I'm begging you.", "I feel so exposed..."],
+    onepiece_m: ["That's everything I've got on.", 'Really? Alright...'],
+    last: ["...Happy now?", "Is that everything? I'm freezing.", "Please just get this over with.", "I've never felt so exposed."],
+  },
 };
+// tank patients and questions are interspersed with idle chatter while waiting
+export const IDLE_CHATTER = ['How much longer?', 'Is it always this cold in here?', 'Do you get many people through here?', '...', 'I could really use some water.', 'Nice place. Very... clean.'];
 
 export const MOTIVES_HARMLESS = [
   { lie: 'any', text: "The card belonged to my brother. He died on the road. Mine burned with our house - I was scared you'd turn me away without one." },

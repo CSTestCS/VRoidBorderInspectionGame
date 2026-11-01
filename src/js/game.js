@@ -1,9 +1,10 @@
 // Core game controller: days, visitors, stations, decisions and scoring.
 import * as THREE from 'three';
-import { World, SPOTS, TANK_POS } from './world.js';
+import { World, SPOTS, TANK_POS, PATHS, tankApproach } from './world.js';
 import { Player } from './player.js';
 import { audio } from './audio.js';
 import { makeVoiceProfile } from './voice.js';
+import { keys as KB, K, keyName } from './keys.js';
 import { RNG, el, clamp, damp, sleep } from './util.js';
 import { generateVisitor, buildVisitorCharacter, correctOutcome, measureDirt, paintClothing, PROBLEM_LABEL, CURRENT_YEAR } from './visitor.js';
 import { renderPortrait, renderPortraitFrom, compileGradually } from './portrait.js';
@@ -13,6 +14,7 @@ import { OBJECTS } from './objects.js';
 import { ObjectViewer } from './objectViewer.js';
 import { openRulebook } from './rulebook.js';
 import { REACT, GREETINGS, HANDOVER, NAME_HESITATE, NO_CONTRABAND, NO_CONTRABAND_LIE, NO_BITE, NO_BITE_LIE, INTERRO_Q } from './data.js';
+import { drawCardFront as drawFront, drawCardUV as drawUV } from './idcard.js';
 import { storeSet } from './platform.js';
 import { CATEGORY_LABEL } from './vrm/modelConfig.js';
 import { Proxies } from './proxies.js';
@@ -33,6 +35,8 @@ export class Game {
     this.run = null;
     this.interro = null;
     this.tanks = [null, null, null, null];
+    this.walkers = new Set(); // characters walking somewhere on their own
+    this.idCompare = {};
     this.dayLog = [];
     this.tutorial = null;
     this.paused = false;
@@ -124,6 +128,9 @@ export class Game {
     const n = count ?? (dayNumber === 1 ? rng.int(3, 4) : rng.int(3, 7));
     this.queue = preset ? preset.slice() : Array.from({ length: n }, () => generateVisitor(rng.int(1, 2 ** 31 - 1), this.models));
     this.dayTotal = this.queue.length;
+    this.rainy = !preset && dayNumber >= 2 && rng.chance(0.3);
+    this.world.setRain(this.rainy);
+    this.idCompare = {};
     this.prepared?.done?.then((j) => j?.ch && j.ch !== this.run?.ch && j.ch.dispose());
     this.prepared = null;
     this.prepareNext();
@@ -133,6 +140,7 @@ export class Game {
     this.updateHUD();
     this.setObjective('Press the green <b>NEXT</b> button on your desk to call the first visitor.');
     this.ui.toast(`Day ${dayNumber} — ${this.dayTotal} visitors expected.`, 'warn', 5);
+    if (this.rainy) this.ui.toast('Heavy rain outside today. Visitors will arrive soaked.', '', 6);
   }
 
   async loadTankCharacters() {
@@ -186,19 +194,55 @@ export class Game {
       ? audio.voice(text, female, { profile: ch.voice, radio: behindGlass, pan: behindGlass ? 0 : pan, emotion })
       : audio.voice(text, false, { profile: this.interrogatorVoice || (this.interrogatorVoice = makeVoiceProfile(4242, 'male', 'adult')), radio: true });
     const dur = v.duration || text.length * 0.05;
-    ch?.face?.talk(dur, v.syllables);
+    ch?.face?.talk(dur + 0.5, v.syllables);
+    if (v.utterance && ch) {
+      // re-sync the lips when the system voice actually starts / stops
+      v.utterance.onstart = () => ch.face?.talk(dur, v.syllables);
+      v.utterance.onend = () => ch.face?.stopTalking();
+    }
     const an = ch?.animator;
     if (an && text.length > 28 && !an.walking && an.pose !== 'armsUp' && Math.random() < an.personality.gesture) an.play(Math.random() < 0.6 ? 'explain' : 'explainL');
-    this.ui.subtitle(who || (ch?.spec ? 'Visitor' : ''), text, Math.max(2.5, dur + 1.2));
+    this.ui.subtitle(who || (ch?.spec ? this.speakerName(ch) : ''), text, Math.max(2.5, dur + 1.2));
     return dur;
   }
-  react(kind, emotion = null, w = 0.8) {
-    const r = this.run;
+  react(kind, emotion = null, w = 0.8, run = this.run) {
+    const r = run;
     if (!r?.ch) return;
-    const rng = Math.random;
-    const lines = REACT[kind];
-    if (lines) this.say(r.ch, lines[Math.floor(rng() * lines.length)], 'Visitor');
+    const line = this.pickLine(REACT[kind], r);
+    if (line) this.say(r.ch, line);
     if (emotion) r.ch.face.flash(emotion, w, 2.2);
+  }
+
+  // After the booth the officer knows the name on the card.
+  speakerName(ch) { return ch?.knownName || 'Visitor'; }
+
+  // pools are arrays, or { neutral, friendly, hostile } chosen by the visitor's favor
+  pickLine(pool, run) {
+    if (!pool) return null;
+    const pick = (a) => a[Math.floor(Math.random() * a.length)];
+    if (Array.isArray(pool)) return pick(pool);
+    const f = run?.favor ?? 0;
+    return pick(f > 35 && pool.friendly ? pool.friendly : f < -35 && pool.hostile ? pool.hostile : pool.neutral);
+  }
+
+  // Favor: how the visitor feels about the officer (-100..100).
+  favor(run, delta) {
+    if (!run) return;
+    run.favor = clamp((run.favor ?? 0) + delta, -100, 100);
+    if (run.ch) run.ch.face.attitude = run.favor / 100;
+  }
+  attitudeLabel(f, admire = false) {
+    if (admire || f >= 70) return 'Admires you';
+    if (f >= 35) return 'Friendly';
+    if (f >= 10) return 'Cooperative';
+    if (f > -10) return 'Neutral';
+    if (f > -35) return 'Annoyed';
+    if (f > -70) return 'Frustrated';
+    return 'Furious';
+  }
+  noteAttitude(run) {
+    const e = this.dayLog.find((x) => x.spec.id === run.spec.id);
+    if (e) { e.favor = run.favor ?? 0; e.admire = !!run.admire; }
   }
 
   // ------------------------------------------------------------ visitors flow
@@ -214,12 +258,14 @@ export class Game {
       spec, phase: 'arriving', idStamp: null, cardViewed: false, asked: new Set(), searched: new Set(), found: [],
       fate: {}, washer: [], clothesReturned: false, dispo: null, events: [], hosed: false, hoseTime: 0, faceHits: 0,
       armsUp: false, turned: false, uvUsedOnCard: false,
+      favor: Math.round(new RNG((spec.seed ^ 0xfa) >>> 0).float(-12, 15)), questions: 0,
     };
     try {
       const ready = await this.takePrepared(spec);
       const ch = ready.ch;
       run.ch = ch;
       run.portrait = ready.portrait;
+      ch.face.attitude = run.favor / 100;
       ch.root.position.copy(SPOTS.visitorSpawn);
       ch.root.rotation.y = 0;
       ch.animator.lookTarget = this.engine.camera;
@@ -266,6 +312,7 @@ export class Game {
     job.done = (async () => {
       const ch = await buildVisitorCharacter(spec, this.modelsById);
       job.ch = ch;
+      if (this.rainy) { ch.setWetAll(0.9); ch.setHairWet(0.85); ch.setClothWet(1); }
       // the portrait normally shows the same model; only a false identity needs another one
       job.portrait = spec.card.portrait.modelId === spec.modelId
         ? await renderPortraitFrom(this.engine, ch, spec.card.portrait.look)
@@ -343,6 +390,26 @@ export class Game {
     if (run.cardMesh) { const t = run.cardMesh.userData.front; t.image = run.cardFront; t.needsUpdate = true; }
   }
 
+  async walkPath(ch, points, speed = 1.15) {
+    this.walkers.add(ch);
+    for (const p of points) await this.walkTo(ch, p, speed);
+    this.walkers.delete(ch);
+  }
+  // smooth non-walking move (climbing into / out of a tank)
+  moveSmooth(ch, to, ry, seconds) {
+    const from = ch.root.position.clone(), r0 = ch.root.rotation.y;
+    let t = 0;
+    return new Promise((res) => {
+      ch.glide = (dt) => {
+        t = Math.min(1, t + dt / seconds);
+        const k = t * t * (3 - 2 * t);
+        ch.root.position.lerpVectors(from, to, k);
+        ch.root.rotation.y = r0 + (ry - r0) * k;
+        if (t >= 1) { ch.glide = null; res(); }
+      };
+    });
+  }
+
   walkTo(ch, target, speed = 1.0) {
     return new Promise((resolve) => { ch.walk = { target: target.clone(), speed, resolve }; ch.animator.walking = true; ch.animator.walkSpeed = speed; });
   }
@@ -408,10 +475,10 @@ export class Game {
       el('div', { class: 'row' },
         el('button', { onclick: flip }, 'Flip card (F)'),
         el('button', { onclick: toggleUV, style: { borderColor: '#9b6bff' } }, 'UV lamp (U)'),
-        el('button', { onclick: () => m.close() }, 'Close (I / Esc)')),
+        el('button', { onclick: () => m.close() }, `Close (${keyName(KB.idcard)} / Esc)`)),
       el('p', { class: 'muted' }, 'Compare the portrait, name and details with the visitor. Use the height chart behind them and look at their eyes (hold right mouse to zoom).'));
     const m = this.ui.modal(content, { side: true, title: 'Identity Card' });
-    m.keys = (e) => { if (e.code === 'KeyF') flip(); if (e.code === 'KeyU') toggleUV(); if (e.code === 'KeyI') m.close(); };
+    m.keys = (e) => { if (e.code === 'KeyF') flip(); if (e.code === 'KeyU') toggleUV(); if (e.code === KB.idcard) m.close(); };
   }
 
   openIntercom() {
@@ -446,6 +513,8 @@ export class Game {
           add('You', q, 'you');
           this.ui.subtitle('You', q, 2);
           run.asked.add(id);
+          run.questions++;
+          if (run.questions > 5) this.favor(run, -2);
           this.emit('asked', id);
           await sleep(900);
           const ans = a();
@@ -475,7 +544,7 @@ export class Game {
     this.redrawCard(run);
     this.ui.toast(kind === 'APPROVED' ? 'ID stamped APPROVED.' : 'ID stamped FLAGGED for questioning.', kind === 'APPROVED' ? 'good' : 'bad');
     this.emit('stamped', kind);
-    if (kind === 'FLAGGED') run.ch.face.flash('surprised', 0.6, 1.5);
+    if (kind === 'FLAGGED') { run.ch.face.flash('surprised', 0.6, 1.5); this.favor(run, -10); } else this.favor(run, 4);
   }
 
   async sendToDecon() {
@@ -484,20 +553,22 @@ export class Game {
     if (!run.idStamp) { this.ui.toast('Stamp the ID card first (APPROVED or FLAG).', 'warn'); audio.error(); return; }
     audio.button();
     this.say(run.ch, 'Okay. Where do I go?');
-    await this.fade(async () => {
-      run.ch.root.position.copy(SPOTS.platform);
-      run.ch.root.rotation.y = Math.PI;
-      run.ch.turnTarget = Math.PI;
-      run.cardMesh.removeFromParent();
-      run.phase = 'decon';
-      run.proxies = null;
-      this.world.puddle.material.opacity = 0;
-      run.ch.update(1 / 30);
-      this.ensureProxies(); // build click targets while the screen is black
-      this.prepareNext();
-    });
+    run.cardMesh.removeFromParent();
+    run.phase = 'toDecon';
+    run.ch.knownName = `${run.spec.card.first} ${run.spec.card.last}`;
+    run.proxies = null;
+    this.world.puddle.material.opacity = 0;
+    this.prepareNext();
     this.emit('sentToDecon');
-    this.setObjective('Go to <b>Decontamination</b>. Inspect each clothing item where it is worn, search it, remove it, and sort it into the <b>washer</b> or the <b>incinerator</b>. Press <kbd>I</kbd> to view the ID card.');
+    this.setObjective(`Go to <b>Decontamination</b>. ${run.ch.knownName} is walking there through the visitor corridor. Inspect each clothing item where it is worn, search it, remove it, and sort it into the <b>washer</b> or the <b>incinerator</b>. Press ${K('idcard')} to view the ID card.`);
+    await sleep(700);
+    await this.walkPath(run.ch, PATHS.windowToDecon, 1.25);
+    if (this.run !== run) return;
+    run.ch.turnTarget = Math.PI;
+    run.proxies = new Proxies(run.ch);
+    await run.proxies.bakeAsync();
+    run.phase = 'decon';
+    this.emit('arrivedDecon');
   }
 
   // ------------------------------------------------------------- washroom
@@ -562,8 +633,8 @@ export class Game {
         o.handled = true;
         o.decision = choice;
         run.found.push({ ...o, itemId });
-        if (choice === 'confiscate') { audio.metalDrop(); this.react('confiscate', 'angry', 0.5); run.ch.animator.play('reachOut'); this.ui.toast('Item placed in the contraband bin.'); }
-        else { this.react('returnItem', 'happy', 0.4); this.ui.toast('Item kept with the visitor\'s belongings.'); }
+        if (choice === 'confiscate') { audio.metalDrop(); this.react('confiscate', 'angry', 0.5); run.ch.animator.play('reachOut'); this.favor(run, o.bad ? -4 : -15); this.ui.toast('Item placed in the contraband bin.'); }
+        else { this.react('returnItem', 'happy', 0.4); this.favor(run, 6); this.ui.toast('Item kept with the visitor\'s belongings.'); }
         this.emit('objectDecided', { type: o.type, choice });
         m.close();
       };
@@ -594,16 +665,53 @@ export class Game {
     run.ch.setItemVisible(itemId, false);
     this.player.carry({ itemId, name: it.name, color, model });
     audio.burst({ dur: 0.5, freq: 700, gain: 0.2, attack: 0.05 });
-    if (first) this.react('stripStart', 'sad', 0.5);
-    else run.ch.face.flash('sad', 0.3, 1.5);
+    this.removalReaction(run, it);
     this.emit('itemRemoved', itemId);
     const left = this.removableItems().filter((o) => !o.removed);
     if (!left.length) {
+      if (run.armsUp) this.lowerArms(run);
       run.ch.animator.setPose('shy');
       run.ch.animator.mood = 'cold';
       run.ch.face.setBase({ sad: 0.25 });
-      this.setObjective('All clothing removed. Finish sorting, then take the <b>hose</b> from the wall reel and wash the visitor thoroughly. <kbd>T</kbd> raise arms, <kbd>R</kbd> turn around.');
+      this.setObjective(`All clothing removed. Finish sorting, then take the <b>hose</b> from the wall reel and wash the visitor thoroughly. ${K('arms')} raise arms, ${K('turn')} turn around.`);
     }
+  }
+
+  // How the visitor reacts depends on what came off (and on who they are).
+  removalReaction(run, it) {
+    const ch = run.ch, an = ch.animator;
+    const female = run.spec.sex !== 'male';
+    const cat = it.category;
+    let key = cat;
+    if (cat === 'accessory' && /glass|spectacle|megane/i.test(it.name)) key = 'glasses';
+    if (['top', 'bottom', 'onepiece'].includes(cat)) key = cat + (female ? '_f' : '_m');
+    const embarrassing = (cat === 'top' && female) || cat === 'bottom' || cat === 'onepiece';
+    const allOff = this.removableItems().every((o) => o.removed);
+    const pool = allOff && embarrassing ? REACT.remove.last : REACT.remove[key] || REACT.remove.accessory;
+    // don't talk over every single sock; plain items only sometimes get a comment
+    if (embarrassing || Math.random() < 0.6) this.say(ch, pool[Math.floor(Math.random() * pool.length)]);
+    if (embarrassing) {
+      ch.face.flash(female ? 'sad' : 'surprised', female ? 0.8 : 0.5, 3);
+      ch.face.flash('sad', 0.5, 4);
+      an.play('lookDown');
+      // cover up for a while and avoid eye contact
+      if (!run.armsUp) { an.armStyle = cat === 'top' && female ? 'hug' : 'modest'; }
+      an.lookWeight = 0.15;
+      clearTimeout(run.shyTimer);
+      run.shyTimer = setTimeout(() => { if (run.ch) { an.lookWeight = 0.7; if (!run.armsUp) an.armStyle = an.personality.styles[0]; } }, 6000);
+      this.favor(run, female ? -7 : -4);
+    } else {
+      ch.face.flash('relaxed', 0.3, 1.2);
+      this.favor(run, -1);
+    }
+  }
+
+  lowerArms(run) {
+    if (!run?.armsUp) return;
+    run.armsUp = false;
+    run.ch.animator.setPose(this.removableItems().every((o) => o.removed) ? 'shy' : 'idle');
+    this.react('armsDown', null, 0, run);
+    this.rebake(1500);
   }
 
   depositCarried(dest) {
@@ -624,6 +732,7 @@ export class Game {
       setTimeout(() => { this.world.incGlow.material.emissiveIntensity = 0.6; this.world.incLight.intensity = 0.6; }, 1600);
       this.react('burn', 'sad', 0.8);
       run.ch.animator.play('shake');
+      this.favor(run, CONTAMINATED.includes(run.spec.clothing[c.itemId]) ? -3 : -15);
       this.ui.toast(`${c.name} burned.`, 'warn');
     }
     this.emit('deposited', { itemId: c.itemId, dest });
@@ -657,7 +766,7 @@ export class Game {
     run.proxies.includeHair = true;
     run.proxies.bakeAsync();
     this.emit('hoseTaken');
-    this.setObjective('Hold <b>left mouse</b> to spray. Wash off all dirt, blood and anything covering the skin. <kbd>T</kbd> raise arms, <kbd>R</kbd> turn around. Put the hose back on the reel when done.');
+    this.setObjective(`Hold <b>left mouse</b> to spray. Wash off all dirt, blood and anything covering the skin. ${K('arms')} raise arms, ${K('turn')} turn around. Put the hose back on the reel when done.`);
   }
 
   onSpray(origin, dir, dt) {
@@ -667,12 +776,13 @@ export class Game {
     if (res.hitSkin || res.hitHair) {
       run.hoseTime += dt;
       this.world.puddle.material.opacity = Math.min(0.75, this.world.puddle.material.opacity + dt * 0.03);
-      if (!run.hosed) { run.hosed = true; this.react('hoseStart', 'surprised', 1); run.ch.animator.shiver = 1; run.ch.animator.mood = 'wet'; if (!run.armsUp) run.ch.animator.play('recoil'); }
+      if (!run.hosed) { run.hosed = true; this.react('hoseStart', 'surprised', 1); run.ch.animator.shiver = 1; run.ch.animator.mood = 'wet'; if (!run.armsUp) run.ch.animator.play('recoil'); this.favor(run, -2); }
+      if (run.hoseTime > 45 && !run.overHosed) { run.overHosed = true; this.favor(run, -6); this.say(run.ch, 'Are you done yet?! I am freezing!'); }
     }
     if (res.hitFace) {
       run.faceHits += dt;
       run.ch.face.eyesClosed = 1;
-      if (!run.lastCover || performance.now() - run.lastCover > 2600) { run.lastCover = performance.now(); if (!run.armsUp) run.ch.animator.play('coverFace'); }
+      if (!run.lastCover || performance.now() - run.lastCover > 2600) { run.lastCover = performance.now(); if (!run.armsUp) run.ch.animator.play('coverFace'); this.favor(run, -4); }
       run.lastFaceHit = performance.now();
       if (run.faceHits > 0.6 && !run.complainedFace) { run.complainedFace = true; this.react('hoseFace', 'angry', 0.6); }
     }
@@ -685,9 +795,10 @@ export class Game {
     if (cmd === 'arms') {
       run.armsUp = !run.armsUp;
       run.ch.animator.setPose(run.armsUp ? 'armsUp' : (this.removableItems().every((o) => o.removed) ? 'shy' : 'idle'));
-      if (run.armsUp) this.react('armsUp');
+      if (run.armsUp) this.react('armsUp'); else this.react('armsDown');
       this.ui.subtitle('You', run.armsUp ? 'Raise your arms.' : 'Lower your arms.', 1.5);
     } else if (cmd === 'turn') {
+      if (run.armsUp) this.lowerArms(run);
       run.turned = !run.turned;
       run.ch.turnTarget = run.turned ? 0 : Math.PI;
       this.react('turn');
@@ -706,6 +817,8 @@ export class Game {
     for (const s of run.ch.clothSurf.values()) { s.layers.ov.data.fill(0); s.layers.glow.data.fill(0); s.layers.ov.dirty = s.layers.glow.dirty = true; }
     paintClothing(run.ch, run.spec, { washed: true });
     for (const id of run.washer) run.ch.setItemVisible(id, true);
+    run.ch.setClothWet(0); // out of the washer and dryer
+    this.favor(run, 6);
     run.ch.animator.setPose('idle');
     run.ch.animator.mood = run.ch.hairWet > 0.3 ? 'wet' : 'calm';
     run.armsUp = false;
@@ -720,6 +833,7 @@ export class Game {
 
   openTerminal() {
     const run = this.run;
+    if (run?.phase === 'released') return this.openReleaseTerminal();
     if (!run || !['inspect', 'hose', 'decon'].includes(run.phase)) { this.ui.toast('No visitor awaiting a decision.'); return; }
     if (run.phase !== 'inspect') { this.ui.toast('Decontamination is not finished (clothes sorted, hosed, hose returned).', 'warn'); audio.error(); return; }
     const s = run.spec;
@@ -737,9 +851,28 @@ export class Game {
     const m = this.ui.modal(content, { title: 'Disposition Terminal' });
   }
 
+  // Talk to the visitor directly: commands, clothes and the disposition choices.
+  visitorMenu() {
+    const run = this.run;
+    if (!run?.ch) return;
+    const ready = run.phase === 'inspect' || run.phase === 'released';
+    const name = this.speakerName(run.ch);
+    const content = el('div', {},
+      el('p', {}, el('b', {}, name), el('span', { class: 'muted' }, ` · ${this.attitudeLabel(run.favor ?? 0, run.admire)}`)),
+      el('div', { class: 'col' },
+        run.phase !== 'released' ? el('button', { onclick: () => { m.close(); this.visitorCommand('arms'); } }, (run.armsUp ? 'Lower your arms' : 'Raise your arms') + ` (${keyName(KB.arms)})`) : null,
+        run.phase !== 'released' ? el('button', { onclick: () => { m.close(); this.visitorCommand('turn'); } }, `Turn around (${keyName(KB.turn)})`) : null,
+        run.phase === 'inspect' && !run.clothesReturned ? el('button', { onclick: () => { m.close(); this.returnClothes(); } }, 'Give back washed clothes') : null,
+        ready ? el('button', { class: 'primary', onclick: () => { m.close(); this.openTerminal(); } }, 'Decide where they go…') : el('p', { class: 'muted' }, 'Finish decontamination (clothes sorted, hosed, hose put back) before deciding.'),
+        el('button', { onclick: () => m.close() }, 'Back')));
+    const m = this.ui.modal(content, { title: name });
+  }
+
   async dispose(choice) {
     const run = this.run;
+    if (run.released) return this.disposeReleased(choice);
     run.dispo = choice;
+    this.captureIdCompare(run);
     run.dirtLeft = measureDirt(run.ch);
     this.player.hasHose = false;
     if (this.player.tool === 'hose') this.player.setTool('hand');
@@ -749,6 +882,7 @@ export class Game {
     const ch = run.ch;
     ch.turnTarget = null;
     if (choice === 'admit' || choice === 'deny') {
+      this.favor(run, choice === 'admit' ? 25 : -50);
       this.react(choice, choice === 'admit' ? 'happy' : 'sad', 1);
       ch.animator.play(choice === 'admit' ? 'nod' : 'shake');
       ch.face.setBase(choice === 'admit' ? { happy: 0.5 } : { sad: 0.6, angry: 0.2 });
@@ -758,49 +892,110 @@ export class Game {
       ch.animator.setPose('idle');
       await sleep(1200);
       door.set(1); audio.bigDoor();
-      await this.walkTo(ch, new THREE.Vector3(dpos.x, 0, dpos.z - 0.9));
-      await this.walkTo(ch, new THREE.Vector3(dpos.x, 0, dpos.z + 1.2));
+      await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z - 0.9), new THREE.Vector3(dpos.x, 0, dpos.z + 1.2)], 1.1);
       door.set(0);
       this.finishRun(run, choice);
     } else if (choice === 'tank') {
+      this.favor(run, -8);
       this.react('tank', 'sad', 0.8);
       await sleep(1500);
       const i = this.tanks.findIndex((t) => !t);
-      await this.fade(async () => {
-        const patient = { spec: run.spec, ch, level: run.spec.cureDays ? 100 : 0, daysIn: 0, checkedToday: true, idStamp: run.idStamp, run };
-        this.finishRun(run, 'tank', true);
-        this.tanks[i] = patient;
-        this.placeInTank(patient, i);
-        audio.bubble();
-        this.updateHUD();
-      });
-      this.ui.toast(`Visitor placed in Tank ${i + 1}. Check the tank console in the Medical Lab every day.`, 'warn', 6);
+      const patient = { spec: run.spec, ch: null, level: run.spec.cureDays ? 100 : 0, daysIn: 0, checkedToday: true, idStamp: run.idStamp, run, arriving: true };
+      this.tanks[i] = patient;
+      this.finishRun(run, 'tank', true);
+      this.ui.toast(`${this.speakerName(ch)} is heading to Tank ${i + 1}. Check the tank console in the Medical Lab every day.`, 'warn', 6);
+      run.phase = 'toTank';
+      await this.walkPath(ch, [...PATHS.deconToLab, ...tankApproach(i)], 1.1);
+      this.walkers.add(ch);
+      await this.moveSmooth(ch, TANK_POS[i].clone().add(new THREE.Vector3(0, 0.45, 0)), -Math.PI / 2, 1.6);
+      this.walkers.delete(ch);
+      patient.ch = ch; patient.arriving = false;
+      this.placeInTank(patient, i);
+      audio.bubble();
+      this.updateHUD();
     } else if (choice === 'interro') {
+      this.favor(run, -20);
       this.react('interro', 'angry', 0.7);
-      await sleep(1400);
-      await this.fade(async () => {
-        ch.root.position.copy(SPOTS.interroSeat);
-        ch.root.rotation.y = Math.PI / 2;
-        ch.animator.setPose('sit');
-        ch.animator.lookTarget = null;
-        ch.lookAt(null);
-        ch.animator.handTargets = this.tableHands();
-        ch.face.setBase({ sad: 0.4 });
-        run.proxies?.dispose();
-        this.recordResults(run.spec, this.evaluate(run, 'interro'));
-        this.interro = { run, stage: 'waiting' };
-        this.run = null;
-        run.phase = 'interrogation';
-        this.updateHUD();
-      });
-      this.ui.toast('Visitor is waiting in the Interrogation room. Use the console there to review the questioning.', 'warn', 6);
-      this.setObjective('Go to the <b>Interrogation</b> room and use the console to review the questioning.');
+      run.proxies?.dispose();
+      this.recordResults(run.spec, this.evaluate(run, 'interro'));
+      this.noteAttitude(run);
+      await this.sendToInterrogation(run);
     }
+  }
+
+  // Walk a visitor to the interrogation cell and sit them at the table.
+  async sendToInterrogation(run) {
+    const ch = run.ch;
+    this.interro = { run, stage: 'arriving' };
+    if (this.run === run) this.run = null;
+    run.phase = 'interrogation';
+    this.updateHUD();
+    this.ui.toast(`${this.speakerName(ch)} is being taken to the Interrogation room. Use the console there to review the questioning.`, 'warn', 6);
+    this.setObjective('Go to the <b>Interrogation</b> room and use the console to review the questioning.');
+    await sleep(1000);
+    const start = run.released ? [new THREE.Vector3(0, 0, 16.6)] : [];
+    await this.walkPath(ch, [...start, ...PATHS.deconToInterro], 1.1);
+    ch.turnTarget = Math.PI / 2;
+    await sleep(500);
+    ch.animator.setPose('sit');
+    ch.animator.lookTarget = null;
+    ch.lookAt(null);
+    ch.animator.handTargets = this.tableHands();
+    ch.face.setBase({ sad: 0.4 });
+    if (this.interro?.run === run) this.interro.stage = 'waiting';
+  }
+
+  // Exit on foot to the Haven or the wasteland, then remove the character.
+  async walkOut(run, admit) {
+    const ch = run.ch;
+    const door = admit ? this.world.doors.haven : this.world.doors.waste;
+    const dpos = admit ? SPOTS.havenDoor : SPOTS.wasteDoor;
+    await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z - 0.9)], 1.1);
+    door.set(1); audio.bigDoor();
+    await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z + 1.2)], 1.1);
+    door.set(0);
+    ch.dispose();
+  }
+
+  // Before a visitor leaves, remember what their card should have looked like
+  // if the officer approved a false identity (shown in the end-of-day report).
+  async captureIdCompare(run) {
+    const s = run.spec;
+    if (run.idStamp !== 'APPROVED' || !correctOutcome(s).interrogate || !run.ch) return;
+    const real = JSON.parse(JSON.stringify(s));
+    const notes = [];
+    const c = s.card;
+    if (s.problems.includes('invalidName')) {
+      const [first, ...rest] = s.answers.name.split(' ');
+      real.card.first = first; real.card.last = rest.join(' ') || c.last;
+      notes.push(`Name on the card: ${c.first} ${c.last} — the visitor said: ${s.answers.name}.`);
+    }
+    if (s.problems.includes('invalidDetails')) {
+      const v = s.details.details;
+      if (v === 'height') { real.card.heightCm = s.heightCm; notes.push(`Card height ${c.heightCm} cm — actual height about ${s.heightCm} cm (height chart).`); }
+      if (v === 'eyes') { real.card.eyeName = s.look.eyeName; notes.push(`Card eyes ${c.eyeName.toUpperCase()} — the visitor's eyes are ${s.look.eyeName.toUpperCase()}.`); }
+      if (v === 'dob') { real.card.dob = s.answers.dob; notes.push(`Card date of birth ${fmtDate(c.dob)} — the visitor said ${fmtDate(s.answers.dob)}.`); }
+      if (v === 'sex') { real.card.sex = s.sex; notes.push(`Card sex ${c.sex === 'male' ? 'M' : 'F'} — the visitor is ${s.sex === 'male' ? 'M' : 'F'}.`); }
+    }
+    if (s.problems.includes('forgedSeal')) {
+      real.card.seal = 'valid';
+      notes.push({ missing: 'UV seal: missing entirely.', star5: 'UV seal: five-pointed star instead of seven.', misspelled: 'UV seal: ring text misspelled ("REGISTFY", "GENIUNE").', idmismatch: 'UV seal: microtext number does not match the card number.' }[c.seal] || 'UV seal is not genuine.');
+    }
+    let realPortrait = run.portrait;
+    if (s.problems.includes('invalidPortrait')) {
+      notes.push('Portrait shows a different person.');
+      try { realPortrait = await renderPortraitFrom(this.engine, run.ch, s.look); } catch { realPortrait = run.portrait; }
+    }
+    this.idCompare[s.id] = {
+      approved: drawFront(s, run.portrait, 'APPROVED'), approvedUV: drawUV(s),
+      real: drawFront(real, realPortrait, null), realUV: drawUV(real, 'valid'), notes,
+    };
   }
 
   finishRun(run, outcome, keepModel = false) {
     const results = this.evaluate(run, outcome);
     this.recordResults(run.spec, results);
+    this.noteAttitude(run);
     if (!keepModel) run.ch?.dispose();
     run.proxies?.dispose();
     run.cardMesh?.userData.textures?.forEach((t) => t.dispose());
@@ -897,6 +1092,7 @@ export class Game {
       el('div', { class: 'row' }, el('button', { onclick: () => m.close() }, 'Close (Esc) — decide later')));
     const m = this.ui.modal(content, { title: 'Interrogation Record', side: true });
     const add = (who, text, cls) => { log.append(el('div', { class: cls }, el('b', {}, who + ': '), text)); log.scrollTop = 1e6; };
+    if (I.stage === 'arriving') { add('Record', 'The subject is still being escorted to the cell.'); return; }
     if (I.stage === 'waiting') {
       I.stage = 'questioning';
       const qs = INTERRO_Q.slice(0, 3);
@@ -933,14 +1129,23 @@ export class Game {
     if (!I) return;
     const run = I.run;
     this.interro = null;
-    await this.fade(async () => {
-      const results = this.evaluate(run, 'interro-' + choice);
-      this.recordResults(run.spec, results);
-      run.ch.dispose();
-    });
+    const results = this.evaluate(run, 'interro-' + choice);
+    this.recordResults(run.spec, results);
+    this.favor(run, choice === 'admit' ? 12 : -45);
+    this.noteAttitude(run);
     this.ui.toast(choice === 'admit' ? 'Visitor admitted after questioning.' : 'Visitor escorted back to the wasteland.', choice === 'admit' ? 'good' : 'warn');
     this.emit('interroResolved', choice);
     this.setObjective(this.queue.length ? 'Return to the booth and call the next visitor.' : 'All visitors processed. Press <b>NEXT</b> in the booth to end your shift.');
+    const ch = run.ch;
+    ch.animator.handTargets = null;
+    ch.animator.setPose('idle');
+    ch.animator.lookTarget = this.engine.camera;
+    ch.lookAt(this.engine.camera);
+    ch.face.setBase(choice === 'admit' ? { happy: 0.3 } : { sad: 0.5, angry: 0.3 });
+    this.react(choice === 'admit' ? 'admit' : 'deny', choice === 'admit' ? 'happy' : 'angry', 0.8, run);
+    await sleep(1200);
+    await this.walkPath(ch, PATHS.interroToDecon, 1.1);
+    await this.walkOut(run, choice === 'admit');
   }
 
   tableHands() {
@@ -977,40 +1182,81 @@ export class Game {
 
   releasePatient(i) {
     const t = this.tanks[i];
-    if (!t) return;
+    if (!t || !t.ch) return;
+    if (this.run) { this.ui.toast('Finish with the current visitor first: released patients walk to the decontamination room for your decision.', 'warn', 6); return; }
     const early = t.level > 0;
+    const go = async () => {
+      m.close();
+      const run = t.run || { spec: t.spec, found: [], fate: {}, idStamp: t.idStamp, washer: [] };
+      run.releaseResults = [early ? { sev: 'major', text: 'Released a patient before the cure was complete.' } : { sev: 'ok', text: 'Patient fully cured before release.' }];
+      run.released = true; run.early = early; run.phase = 'releasing'; run.clothesReturned = true;
+      run.favor = (run.favor ?? 0) + (early ? 5 : 30);
+      const ch = t.ch;
+      run.ch = ch;
+      ch.knownName = `${t.spec.card.first} ${t.spec.card.last}`;
+      this.tanks[i] = null;
+      this.run = run;
+      this.updateHUD();
+      ch.setFloating(false); ch.face.eyesClosed = 0; ch.face.setBase({ relaxed: 0.3 });
+      ch.setLayers({ fx: 1 });
+      for (const id of run.washer || []) ch.setItemVisible(id, true);
+      ch.setClothWet(0.6);
+      ch.animator.setPose('idle');
+      ch.animator.lookTarget = this.engine.camera; ch.lookAt(this.engine.camera);
+      audio.bubble();
+      this.walkers.add(ch);
+      await this.moveSmooth(ch, tankApproach(i)[1], Math.PI / 2, 1.6);
+      this.react('release', 'relaxed', 0.6, run);
+      await this.walkPath(ch, [tankApproach(i)[0], ...PATHS.labToDecon], 1.1);
+      ch.turnTarget = Math.PI;
+      run.proxies = new Proxies(ch);
+      await run.proxies.bakeAsync();
+      run.phase = 'released';
+      this.setObjective(`${ch.knownName} is waiting in Decontamination. Talk to them (${K('interact')}) or use the disposition terminal to decide where they go.`);
+    };
     const content = el('div', {},
       el('p', {}, early ? el('span', { class: 'warn' }, 'Warning: readings are not at 0%. Releasing now is against procedure.') : 'Patient is cured.'),
-      el('p', { class: 'muted' }, `Booth stamp on their ID: ${t.idStamp}. Where should they go?`),
-      el('div', { class: 'col' },
-        el('button', { class: 'good', onclick: () => go('admit') }, 'Admit into the Haven'),
-        el('button', { onclick: () => go('interro'), disabled: !!this.interro }, 'Hold for interrogation' + (this.interro ? ' (room busy)' : '')),
-        el('button', { class: 'danger', onclick: () => go('deny') }, 'Deny entry'),
-        el('button', { onclick: () => m.close() }, 'Cancel')));
+      el('p', { class: 'muted' }, 'The patient will get dressed and walk to the decontamination room, where you decide where they go next.'),
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: go }, 'Release'), el('button', { onclick: () => m.close() }, 'Cancel')));
     const m = this.ui.modal(content, { title: 'Release Patient' });
-    const go = async (choice) => {
-      m.close();
-      const run = t.run || { spec: t.spec, found: [], fate: {}, idStamp: t.idStamp };
-      const results = [];
-      if (early) results.push({ sev: 'major', text: 'Released a patient before the cure was complete.' });
-      else results.push({ sev: 'ok', text: 'Patient fully cured before release.' });
-      this.tanks[i] = null;
-      const ch = t.ch;
-      await this.fade(async () => {
-        if (choice === 'interro') {
-          ch.setFloating(false); ch.face.eyesClosed = 0;
-          for (const id of run.washer || []) ch.setItemVisible(id, true);
-          ch.root.position.copy(SPOTS.interroSeat); ch.root.rotation.y = Math.PI / 2; ch.animator.setPose('sit'); ch.animator.lookTarget = null; ch.face.setBase({ sad: 0.4 });
-          ch.animator.handTargets = this.tableHands(); ch.lookAt(null);
-          run.ch = ch;
-          this.interro = { run, stage: 'waiting' };
-        } else ch.dispose();
-      });
-      const sub = this.evaluate({ ...run, ch: null }, 'tankRelease-' + choice).filter((r) => !/cure tanks/.test(r.text));
-      this.recordResults(t.spec, [...results, ...sub]);
-      this.ui.toast(choice === 'admit' ? 'Patient released into the Haven.' : choice === 'deny' ? 'Patient sent away.' : 'Patient moved to interrogation.');
-      this.updateHUD();
-    };
+  }
+
+  openReleaseTerminal() {
+    const run = this.run;
+    const s = run.spec;
+    const choose = (d) => { m.close(); this.disposeReleased(d); };
+    const content = el('div', {},
+      el('p', {}, el('b', {}, `${s.card.first} ${s.card.last}`), el('span', { class: 'muted' }, ` · released from the cure tanks · ID stamp: ${run.idStamp}`)),
+      el('p', { class: 'muted' }, 'Cured patients are admitted, unless their identity was flagged — those are held for interrogation.'),
+      el('div', { class: 'col' },
+        el('button', { class: 'good', onclick: () => choose('admit') }, 'Admit into the Haven'),
+        el('button', { onclick: () => choose('interro'), disabled: !!this.interro }, 'Hold for interrogation' + (this.interro ? ' (room busy)' : '')),
+        el('button', { class: 'danger', onclick: () => choose('deny') }, 'Deny entry'),
+        el('button', { onclick: () => m.close() }, 'Cancel')));
+    const m = this.ui.modal(content, { title: 'Disposition Terminal' });
+  }
+
+  async disposeReleased(choice) {
+    const run = this.run;
+    const ch = run.ch;
+    const sub = this.evaluate({ ...run, ch: null }, 'tankRelease-' + choice).filter((r) => !/cure tanks/.test(r.text));
+    this.recordResults(run.spec, [...run.releaseResults, ...sub]);
+    run.proxies?.dispose();
+    this.emit('disposed', choice);
+    // a severe case that was cured and simply let in remembers this officer
+    const s = run.spec;
+    const severe = s.cureDays >= 3 || ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation'].filter((p) => s.problems.includes(p)).length >= 2;
+    if (choice === 'admit' && severe && !run.early) { run.admire = true; this.favor(run, 100); this.react('admire', 'happy', 1, run); }
+    else if (choice === 'admit') { this.favor(run, 20); this.react('admit', 'happy', 0.9, run); }
+    else if (choice === 'deny') { this.favor(run, -60); this.react('deny', 'sad', 1, run); }
+    this.noteAttitude(run);
+    if (choice === 'interro') { this.favor(run, -25); this.noteAttitude(run); this.react('interro', 'angry', 0.7, run); await this.sendToInterrogation(run); return; }
+    this.run = null;
+    this.updateHUD();
+    this.prepareNext();
+    this.setObjective(this.queue.length ? 'Return to the booth and call the next visitor (<b>NEXT</b> button).' : 'All visitors processed. Press <b>NEXT</b> in the booth to end your shift.');
+    await sleep(1500);
+    await this.walkOut(run, choice === 'admit');
   }
 
   // ------------------------------------------------------------- end of day
@@ -1024,7 +1270,9 @@ export class Game {
     for (const n of neglect) this.recordResults(n.spec, n.results);
     // report
     const rows = this.dayLog.map((e) => el('tr', {},
-      el('td', {}, el('b', {}, e.name)),
+      el('td', {}, el('b', {}, e.name),
+        e.favor != null ? el('div', { class: e.admire || e.favor >= 35 ? 'ok' : e.favor <= -35 ? 'bad' : 'muted' }, this.attitudeLabel(e.favor, e.admire)) : null,
+        this.idCompare[e.spec.id] ? el('button', { style: { marginTop: '6px', fontSize: '12px', padding: '4px 8px' }, onclick: () => this.showIdCompare(e) }, 'Compare ID') : null),
       el('td', {}, e.results.length ? e.results.map((r) => el('div', { class: r.sev === 'ok' ? 'ok' : r.sev === 'minor' ? 'warn' : r.sev === 'major' ? 'bad' : 'muted' }, (r.sev === 'ok' ? '✔ ' : r.sev === 'info' ? '• ' : '✖ ') + r.text)) : el('span', { class: 'muted' }, '—')),
       el('td', { class: e.delta >= 0 ? 'ok' : 'bad' }, (e.delta >= 0 ? '+' : '') + e.delta)));
     const dayDelta = this.dayLog.reduce((a, e) => a + e.delta, 0);
@@ -1032,12 +1280,38 @@ export class Game {
     const content = el('div', { class: 'report' },
       el('p', {}, `Shift complete. Net credits today: `, el('b', { class: dayDelta >= 0 ? 'ok' : 'bad' }, String(dayDelta)), ` · Total: ${this.credits}`),
       majors ? el('p', { class: 'bad' }, `${majors} serious violation(s) recorded by Haven Security.`) : el('p', { class: 'ok' }, 'No serious violations. Good work, officer.'),
-      el('table', {}, el('tr', {}, el('th', {}, 'Visitor'), el('th', {}, 'Findings'), el('th', {}, 'Credits')), rows),
+      el('table', {}, el('tr', {}, el('th', {}, 'Visitor / attitude'), el('th', {}, 'Findings'), el('th', {}, 'Credits')), rows),
       el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => { m.close(); this.nextDay(); } }, 'Begin next day'), el('button', { onclick: () => { m.close(); this.app.toMenu(); } }, 'Save & quit to menu')));
     const m = this.ui.modal(content, { title: `End of Day ${this.day}`, closable: false });
     this.advanceTanks();
     await this.save(this.day + 1);
     this.emit('dayEnded');
+  }
+
+  showIdCompare(entry) {
+    const c = this.idCompare[entry.spec.id];
+    if (!c) return;
+    let uv = false;
+    const mk = () => el('canvas', { width: 1024, height: 640, style: { width: '400px', borderRadius: '10px', boxShadow: '0 4px 14px #000' } });
+    const left = mk(), right = mk();
+    const paint = (cv, front, mask) => {
+      const g = cv.getContext('2d');
+      g.clearRect(0, 0, 1024, 640);
+      if (!uv) { g.drawImage(front, 0, 0); return; }
+      g.fillStyle = '#05010c'; g.fillRect(0, 0, 1024, 640);
+      g.globalAlpha = 0.28; g.drawImage(front, 0, 0); g.globalAlpha = 1;
+      const t = document.createElement('canvas'); t.width = 1024; t.height = 640;
+      const tg = t.getContext('2d'); tg.drawImage(mask, 0, 0); tg.globalCompositeOperation = 'multiply'; tg.fillStyle = '#7dffb0'; tg.fillRect(0, 0, 1024, 640);
+      g.globalCompositeOperation = 'lighter'; g.drawImage(t, 0, 0); g.globalCompositeOperation = 'source-over';
+    };
+    const draw = () => { paint(left, c.approved, c.approvedUV); paint(right, c.real, c.realUV); };
+    draw();
+    this.ui.modal(el('div', {},
+      el('div', { style: { display: 'flex', gap: '18px' } },
+        el('div', {}, el('h3', { class: 'bad' }, 'The card you approved'), left),
+        el('div', {}, el('h3', { class: 'ok' }, 'What a genuine card would show'), right)),
+      el('ul', {}, c.notes.map((n) => el('li', {}, n))),
+      el('div', { class: 'row' }, el('button', { onclick: () => { uv = !uv; draw(); } }, 'Toggle UV view'))), { title: `ID review — ${entry.name}` });
   }
 
   advanceTanks() {
@@ -1102,7 +1376,7 @@ export class Game {
     }, () => (this.player.carrying ? this.depositCarried('wash') : this.returnClothes()));
     reg('incinerator', () => (this.player.carrying ? `Burn ${this.player.carrying.name}` : null), () => this.depositCarried('burn'));
     reg('hose', () => (this.player.hasHose ? 'Put the hose back' : this.run && ['decon', 'hose', 'inspect'].includes(this.run.phase) ? 'Take the hose' : null), () => this.toggleHose(), 2.4);
-    reg('terminal', () => (this.run && ['decon', 'hose', 'inspect'].includes(this.run.phase) ? 'Disposition terminal' : null), () => this.openTerminal());
+    reg('terminal', () => (this.run && ['decon', 'hose', 'inspect', 'released'].includes(this.run.phase) ? 'Disposition terminal' : null), () => this.openTerminal());
     reg('interroConsole', () => (this.interro ? 'Review interrogation' : null), () => this.openInterrogation());
     for (let i = 0; i < 4; i++) reg('tank' + i, () => (this.tanks[i] ? `Tank ${i + 1} monitor` : `Tank ${i + 1} (empty)`), () => this.openTank(i));
   }
@@ -1134,14 +1408,14 @@ export class Game {
       if (hit && hit.distance < 2.0 && (!best || hit.distance < best.distance + 0.3)) best = { distance: hit.distance, label: 'Examine ID card', action: () => this.openCard(), id: 'card' };
     }
     // visitor clothing / body
-    if (run?.ch && ['decon', 'hose', 'inspect'].includes(run.phase) && this.player.pos.z > 9) {
+    if (run?.ch && ['decon', 'hose', 'inspect', 'released'].includes(run.phase) && this.player.pos.z > 9) {
       const px = this.ensureProxies();
       const hit = px?.raycast(origin, dir, 2.6);
       if (hit && (!best || hit.distance < best.distance)) {
         if (hit.data.kind === 'item' && run.phase === 'decon') {
           const it = run.ch.items.get(hit.data.itemId);
           best = { distance: hit.distance, label: `${it.name} — inspect / search / remove`, action: () => this.itemMenu(it.id), id: 'item:' + it.id, itemId: it.id };
-        } else best = { distance: hit.distance, label: `Visitor — <kbd>T</kbd> arms up/down · <kbd>R</kbd> turn around`, action: null, id: 'visitor' };
+        } else best = { distance: hit.distance, label: `${this.speakerName(run.ch)} <span class="muted">(${this.attitudeLabel(run.favor ?? 0, run.admire)})</span> — options · ${K('arms')} arms · ${K('turn')} turn`, action: () => this.visitorMenu(), id: 'visitor' };
       }
     }
     return best;
@@ -1166,13 +1440,14 @@ export class Game {
     if (this.paused) return;
     const tk = this.ui.tutorialKeys?.[e.code === 'NumpadEnter' ? 'Enter' : e.code];
     if (tk) { e.preventDefault(); tk(); return; }
-    if (e.code === 'KeyE') this.interact();
-    else if (e.code === 'Tab') { e.preventDefault(); this.openRulebook(); }
-    else if (e.code === 'KeyI' && this.run?.cardFront && this.run.phase !== 'booth') this.openCard();
-    else if (e.code === 'KeyR') this.visitorCommand('turn');
-    else if (e.code === 'KeyT') this.visitorCommand('arms');
-    else if (/^Digit[1-5]$/.test(e.code)) {
-      const id = ['hand', 'flashlight', 'uv', 'geiger', 'hose'][Number(e.code.slice(5)) - 1];
+    const c = e.code;
+    if (c === KB.interact) this.interact();
+    else if (c === KB.manual) { e.preventDefault(); this.openRulebook(); }
+    else if (c === KB.idcard && this.run?.cardFront && this.run.phase !== 'booth') this.openCard();
+    else if (c === KB.turn) this.visitorCommand('turn');
+    else if (c === KB.arms) this.visitorCommand('arms');
+    else if ([KB.tool1, KB.tool2, KB.tool3, KB.tool4, KB.tool5].includes(c)) {
+      const id = ['hand', 'flashlight', 'uv', 'geiger', 'hose'][[KB.tool1, KB.tool2, KB.tool3, KB.tool4, KB.tool5].indexOf(c)];
       if (!this.player.setTool(id)) { if (id === 'hose') this.ui.toast('Take the hose from the reel in the washroom.'); }
       else this.emit('tool', id);
     }
@@ -1198,15 +1473,16 @@ export class Game {
   update(dt) {
     if (!this.active) return;
     this.player.update(dt);
-    const extra = [];
-    if (this.run?.ch) extra.push(this.run.ch.root.position);
-    this.world.update(dt, this.player.pos, extra);
-    // characters
-    const chars = [];
-    if (this.run?.ch) chars.push(this.run.ch);
-    if (this.interro?.run.ch) chars.push(this.interro.run.ch);
-    for (const t of this.tanks) if (t?.ch) chars.push(t.ch);
+    // characters (deduplicated: someone can be both walking and the current visitor)
+    const set = new Set();
+    if (this.run?.ch) set.add(this.run.ch);
+    if (this.interro?.run.ch) set.add(this.interro.run.ch);
+    for (const t of this.tanks) if (t?.ch) set.add(t.ch);
+    for (const w of this.walkers) set.add(w);
+    const chars = [...set];
+    this.world.update(dt, this.player.pos, chars.filter((c) => c.walk || c.glide || c === this.run?.ch).map((c) => c.root.position));
     for (const ch of chars) {
+      if (ch.glide) ch.glide(dt);
       this.updateWalk(ch, dt);
       if (ch.turnTarget != null && !ch.walk) {
         let diff = ch.turnTarget - ch.root.rotation.y;
@@ -1240,7 +1516,7 @@ export class Game {
       }
       ch._pupil = damp(ch._pupil ?? 1, 1 - 0.5 * lit, lit > (1 - (ch._pupil ?? 1)) * 2 ? 9 : 1.2, dt);
       ch.setPupil(ch._pupil);
-      if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); ch.animator.play(Math.random() < 0.3 ? 'flinch' : 'flinchHead'); } }
+      if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); ch.animator.play(Math.random() < 0.3 ? 'flinch' : 'flinchHead'); this.favor(run, -3); if (Math.random() < 0.4) this.react('flashlight', null, 0, run); } }
       else if (lit === 0) run._flinched = false;
     }
     // hover + prompt
@@ -1256,6 +1532,7 @@ export class Game {
     if (this.player.mouse.left && this.player.tool === 'hand' && this.player.enabled && !this._clickLatch) { this._clickLatch = true; this.interact(); }
     if (!this.player.mouse.left) this._clickLatch = false;
     this.ui.toolbar(this.player);
+    if (this.world.raining || this._rainOn) { this._rainOn = this.world.raining; audio.loop('rain', this.world.raining, { freq: 1600, q: 0.3, gain: 0.015 + this.world.doors.outer.open * 0.05, bus: 'ambience', type: 'lowpass' }); }
     this.ui.reticle(this.player.tool === 'hose' && !this.player.carrying ? 'hose' : null);
     // tank screens pulse
     this.world.tanks.forEach((tk, i) => { tk.screen.material.emissiveIntensity = this.tanks[i] ? (this.tanks[i].checkedToday ? 0.6 : 0.3 + 0.3 * Math.sin(performance.now() * 0.006)) : 0.05; tk.light.intensity = this.tanks[i] ? 2.2 : 0.6; });

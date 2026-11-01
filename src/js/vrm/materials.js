@@ -109,15 +109,19 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
       colorCode = 'diffuseColor.rgb *= 1.0 - hvHairWet * 0.38;';
       roughCode = 'roughnessFactor = mix(roughnessFactor, 0.22, hvHairWet);';
     } else if (kind === 'cloth') {
-      decl += 'uniform sampler2D hvOverlay; uniform sampler2D hvGlow; uniform float hvOverlayOn; uniform float hvHighlight;';
+      decl += 'uniform sampler2D hvOverlay; uniform sampler2D hvGlow; uniform float hvOverlayOn; uniform float hvHighlight; uniform float hvClothWet; uniform float hvWetDark; uniform float hvWetSheer;';
       colorCode = `
   #ifdef USE_NORMALMAP
   diffuseColor.rgb *= 0.86 + 0.28 * texture2D(normalMap, vNormalMapUv).a;
   #endif
   vec4 hvO = texture2D(hvOverlay, vMapUv) * hvOverlayOn;
   diffuseColor.rgb = mix(diffuseColor.rgb, hvO.rgb, hvO.a);
+  // wet fabric: cloth darkens; light soft cloth turns semi-transparent
+  float hvCL = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  diffuseColor.a *= 1.0 - hvClothWet * hvWetSheer * smoothstep(0.4, 0.85, hvCL) * 0.62;
+  diffuseColor.rgb *= 1.0 - hvClothWet * hvWetDark * 0.36;
 `;
-      roughCode = 'roughnessFactor = mix(roughnessFactor, 0.35, step(0.5, hvO.a) * hvO.a * 0.6);';
+      roughCode = 'roughnessFactor = mix(roughnessFactor, 0.35, step(0.5, hvO.a) * hvO.a * 0.6); roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.55, hvClothWet * hvWetDark);';
       emissiveCode = `
   totalEmissiveRadiance += hvGlowColor * texture2D(hvGlow, vMapUv).r * hvUvSpot() * 3.0 * hvOverlayOn;
   totalEmissiveRadiance += vec3(0.25, 0.55, 0.9) * hvHighlight * (0.55 + 0.45 * sin(hvTime * 6.0));

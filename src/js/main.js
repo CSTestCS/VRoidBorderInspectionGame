@@ -12,6 +12,7 @@ import { Tutorial, makeTutorialVisitor } from './tutorial.js';
 import { Workshop } from './workshop.js';
 import { openRulebook } from './rulebook.js';
 import { audio } from './audio.js';
+import { ACTIONS, DEFAULT_KEYS, keys as KB, setKeys, keyName } from './keys.js';
 
 class App {
   constructor() {
@@ -20,7 +21,7 @@ class App {
     this.models = [];
     this.game = null;
     this.tutorial = null;
-    this.settings = { quality: 'high', sensitivity: 1, invertY: false, volume: 0.8, sfx: 1, voice: 1, water: 0.7, ambience: 0.8 };
+    this.settings = { quality: 'high', sensitivity: 1, invertY: false, volume: 0.8, sfx: 1, voice: 1, water: 0.7, ambience: 0.8, voiceMode: 'speech', keys: {} };
   }
 
   loading(text, frac) {
@@ -33,6 +34,8 @@ class App {
   async boot() {
     this.loading('Starting…', 0.02);
     this.settings = { ...this.settings, ...((await storeGet('settings')) || {}) };
+    setKeys(this.settings.keys);
+    audio.voiceMode = this.settings.voiceMode;
     audio.setVolume(this.settings.volume);
     audio.setLevels({ sfx: this.settings.sfx, voice: this.settings.voice, water: this.settings.water, ambience: this.settings.ambience });
     this.engine = new Engine($('#viewport'), { quality: this.settings.quality });
@@ -162,6 +165,7 @@ class App {
     const save = async () => {
       await storeSet('settings', s);
       audio.setVolume(s.volume);
+      audio.voiceMode = s.voiceMode;
       audio.setLevels({ sfx: s.sfx, voice: s.voice, water: s.water, ambience: s.ambience });
       if (this.game) { this.game.player.sensitivity = s.sensitivity; this.game.player.invertY = s.invertY; }
     };
@@ -176,8 +180,41 @@ class App {
       row('Voices', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.voice, oninput: (e) => { s.voice = Number(e.target.value); save(); } })),
       row('Water / hose', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.water, oninput: (e) => { s.water = Number(e.target.value); save(); } })),
       row('Ambience', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.ambience, oninput: (e) => { s.ambience = Number(e.target.value); save(); } })),
+      row('Visitor voices', el('select', { onchange: (e) => { s.voiceMode = e.target.value; save(); } },
+        el('option', { value: 'speech', selected: s.voiceMode === 'speech' }, 'Spoken lines (system voices)'),
+        el('option', { value: 'babble', selected: s.voiceMode === 'babble' }, 'Gibberish (synthesized)'))),
+      row('Controls', el('button', { onclick: () => this.openControls() }, 'Key bindings…')),
       row('Fullscreen', el('button', { onclick: () => toggleFullscreen() }, 'Toggle (F11)')),
       el('div', { class: 'row' }, el('button', { onclick: () => m.close() }, 'Close'))), { title: 'Settings' });
+  }
+
+  openControls() {
+    const s = this.settings;
+    let waiting = null;
+    const list = el('div');
+    const draw = () => {
+      list.innerHTML = '';
+      for (const [id, label] of ACTIONS) {
+        const btn = el('button', { style: { minWidth: '110px' }, onclick: () => { waiting = id; draw(); } }, waiting === id ? 'Press a key…' : keyName(KB[id]));
+        const clash = ACTIONS.some(([o]) => o !== id && KB[o] === KB[id]);
+        list.append(el('div', { class: 'ws-field', style: { gridTemplateColumns: '220px 1fr' } }, el('label', { class: clash ? 'warn' : '' }, label + (clash ? ' (conflict)' : '')), btn));
+      }
+    };
+    const onKey = (e) => {
+      if (!waiting) return;
+      e.preventDefault(); e.stopPropagation();
+      if (e.code !== 'Escape') { KB[waiting] = e.code; s.keys = { ...KB }; storeSet('settings', s); }
+      waiting = null; draw();
+    };
+    window.addEventListener('keydown', onKey, true);
+    draw();
+    const m = this.ui.modal(el('div', { style: { width: '460px' } },
+      el('p', { class: 'muted' }, 'Click an action, then press the new key (Esc cancels). Arrow keys always move; right mouse always zooms.'),
+      list,
+      el('div', { class: 'row' },
+        el('button', { onclick: () => { setKeys({}); s.keys = {}; storeSet('settings', s); draw(); } }, 'Reset to defaults'),
+        el('button', { class: 'primary', onclick: () => m.close() }, 'Done'))),
+      { title: 'Key Bindings', onClose: () => window.removeEventListener('keydown', onKey, true) });
   }
 
   async openWorkshop() {

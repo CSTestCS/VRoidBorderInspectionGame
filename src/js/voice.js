@@ -29,7 +29,7 @@ const CONS = [
 export function makeVoiceProfile(seed, sex = 'female', age = 'adult') {
   const rng = new RNG((seed ^ 0x701ce) >>> 0);
   const female = sex !== 'male';
-  let pitch = female ? rng.float(175, 245) : rng.float(92, 140);
+  let pitch = female ? rng.float(200, 270) : rng.float(92, 140);
   if (age === 'old') pitch *= female ? 0.88 : 0.95;
   if (age === 'young') pitch *= 1.05;
   return {
@@ -38,7 +38,8 @@ export function makeVoiceProfile(seed, sex = 'female', age = 'adult') {
     rate: rng.float(0.85, 1.18),
     breath: rng.float(0.04, 0.16) + (female ? 0.04 : 0) + (age === 'old' ? 0.04 : 0),
     rasp: rng.float(0.0, 0.25) + (age === 'old' ? 0.25 : 0),
-    range: rng.float(0.08, 0.2) * (female ? 1.2 : 1),
+    range: rng.float(0.08, 0.2) * (female ? 1.4 : 1),
+    female, age,
     seed,
   };
 }
@@ -239,4 +240,56 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   for (const n of [src, vib, jit, nz]) { n.start(t0); n.stop(end + 0.1); }
   src.onended = () => { try { out.disconnect(); } catch {} };
   return { duration: T, syllables };
+}
+
+// ---- real spoken lines via the system's text-to-speech voices ----------------
+const FEMALE_NAMES = /female|zira|hazel|susan|eva|aria|jenny|sara|libby|sonia|catherine|linda|heather|samantha|victoria|karen|moira|tessa|fiona|natasha|michelle|emma|amy|joanna|kendra|kimberly|salli|ivy|olivia|ana|clara|elsa|helena|hedda|nanami|haruka/i;
+const MALE_NAMES = /\bmale|david|mark|george|guy|ryan|james|richard|daniel|alex\b|fred|thomas|arthur|christopher|eric|steffan|sean|brian|matthew|joey|justin|kevin|liam|oliver|william/i;
+let ttsVoices = [];
+function loadVoices() {
+  if (typeof speechSynthesis === 'undefined') return [];
+  ttsVoices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
+  return ttsVoices;
+}
+if (typeof speechSynthesis !== 'undefined') { loadVoices(); speechSynthesis.addEventListener?.('voiceschanged', loadVoices); }
+export const ttsAvailable = () => (ttsVoices.length ? true : loadVoices().length > 0);
+
+function pickVoice(profile) {
+  const female = profile.female !== false;
+  const byGender = ttsVoices.filter((v) => (female ? FEMALE_NAMES.test(v.name) : MALE_NAMES.test(v.name) && !FEMALE_NAMES.test(v.name)));
+  const pool = byGender.length ? byGender : ttsVoices;
+  return pool[Math.abs(profile.seed | 0) % pool.length];
+}
+
+// Estimated syllable timeline for lip-sync (TTS gives no phoneme timing).
+function estimateTimeline(text, rate) {
+  const syl = [];
+  let t = 0;
+  const tokens = text.match(/[A-Za-z0-9'\-]+|[.,!?;:…]+/g) || [];
+  const vis = { a: 'aa', e: 'ee', i: 'ih', o: 'oh', u: 'ou', y: 'ih' };
+  for (const tk of tokens) {
+    if (/^[.,!?;:…]+$/.test(tk)) { t += (/[.!?…]/.test(tk) ? 0.3 : 0.16) / rate; continue; }
+    const groups = tk.toLowerCase().match(/[aeiouy]+/g) || ['a'];
+    for (const g of groups) { const d = 0.17 / rate; syl.push({ t, d, v: vis[g[0]] || 'aa', w: 0.6 }); t += d; }
+    t += 0.03 / rate;
+  }
+  return { duration: t + 0.1, syllables: syl };
+}
+
+export function speakTTS(text, profile, { volume = 1, emotion = 'neutral' } = {}) {
+  if (!ttsAvailable()) return null;
+  const female = profile.female !== false;
+  const u = new SpeechSynthesisUtterance(text);
+  u.voice = pickVoice(profile) || null;
+  // pitch: 0..2 (1 = default); female voices sit higher, older a bit lower
+  const base = female ? 1.18 + ((profile.pitch - 200) / 70) * 0.3 : 0.82 + ((profile.pitch - 92) / 48) * 0.25;
+  const emoP = { happy: 0.08, surprised: 0.15, sad: -0.08, angry: 0.03 }[emotion] || 0;
+  u.pitch = Math.max(0.4, Math.min(2, base + emoP - (profile.age === 'old' ? 0.1 : 0)));
+  const emoR = { sad: 0.88, angry: 1.08, surprised: 1.08, happy: 1.04 }[emotion] || 1;
+  u.rate = Math.max(0.6, Math.min(1.6, profile.rate * emoR));
+  u.volume = Math.max(0, Math.min(1, volume));
+  const est = estimateTimeline(text, u.rate);
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+  return { ...est, utterance: u };
 }

@@ -15,6 +15,15 @@ export const SPOTS = {
   booth: new THREE.Vector3(0, 0, 2.2),
 };
 export const TANK_POS = [15, 17.2, 19.4, 21.6].map((z) => new THREE.Vector3(13.6, 0, z));
+const V = (x, z) => new THREE.Vector3(x, 0, z);
+export const PATHS = {
+  windowToDecon: [V(-1.4, -2.5), V(-3.6, -2.5), V(-6.7, -2.5), V(-6.7, 10.4), V(-4.9, 10.4), V(-1.6, 13.6), V(0, 15)],
+  deconToInterro: [V(-3.8, 18.8), V(-6.9, 18.8), V(-7.7, 21.3), V(-9.7, 21.3), V(-11.6, 20.6), V(-12.1, 19)],
+  interroToDecon: [V(-11.6, 20.6), V(-9.7, 21.3), V(-7.7, 21.3), V(-6.9, 18.8), V(-3.8, 18.8), V(-0.6, 16.8)],
+  deconToLab: [V(3.6, 17.8), V(7.2, 17.8)],
+  labToDecon: [V(7.2, 17.8), V(3.6, 17.8), V(0.3, 15.6), V(0, 15)],
+};
+export const tankApproach = (i) => [V(10.4, TANK_POS[i].z), V(12.55, TANK_POS[i].z + 0.95)];
 
 function signTexture(lines, { w = 512, h = 128, bg = '#1b1f22', fg = '#e8e2c8', border = '#c9a227', font = 'bold 54px "Segoe UI", Arial', glow = false } = {}) {
   const c = document.createElement('canvas');
@@ -193,7 +202,7 @@ export class World {
     return m;
   }
 
-  slidingDoor(name, x, z, axis, width, height, mat, { auto = true, label = null } = {}) {
+  slidingDoor(name, x, z, axis, width, height, mat, { auto = true, label = null, charOnly = false } = {}) {
     // axis 'x' => door plane spans x (wall along x), slides along x
     const g = new THREE.Group();
     g.position.set(x, 0, z);
@@ -209,7 +218,7 @@ export class World {
     for (const leaf of [L, R]) this.box(leafW * 0.98, 0.12, 0.085, stripe, 0, -height / 2 + 0.5, 0, { parent: leaf, cast: false });
     if (axis === 'z') g.rotation.y = Math.PI / 2;
     this.box(width + 0.3, 0.25, 0.3, this.M.darkMetal, 0, height + 0.125, 0, { parent: g });
-    const door = { g, L, R, open: 0, target: 0, width, auto, x, z, axis, locked: false };
+    const door = { g, L, R, open: 0, target: 0, width, auto, x, z, axis, locked: false, charOnly };
     door.set = (t) => { door.target = t; };
     door.colliderIndex = this.colliders.length;
     this.colliders.push(axis === 'x' ? [x - width / 2, x + width / 2, z - 0.1, z + 0.1] : [x - 0.1, x + 0.1, z - width / 2, z + width / 2]);
@@ -221,7 +230,7 @@ export class World {
   updateDoors(dt, playerPos, extraPositions = []) {
     for (const d of Object.values(this.doors)) {
       if (d.auto && !d.locked) {
-        const near = [playerPos, ...extraPositions].some((p) => p && Math.hypot(p.x - d.x, p.z - d.z) < 2.0);
+        const near = [...(d.charOnly ? [] : [playerPos]), ...extraPositions].some((p) => p && Math.hypot(p.x - d.x, p.z - d.z) < 2.0);
         d.target = near ? 1 : 0;
       }
       d.open += Math.sign(d.target - d.open) * Math.min(Math.abs(d.target - d.open), dt * 2.2);
@@ -232,7 +241,7 @@ export class World {
       const inside = playerPos && playerPos.x > c[0] - 0.35 && playerPos.x < c[1] + 0.35 && playerPos.z > c[2] - 0.35 && playerPos.z < c[3] + 0.35;
       if (d.open > 0.8) c.disabled = true;
       else if (!inside) c.disabled = false;
-      if (inside && d.auto && !d.locked) d.target = 1;
+      if (inside && d.auto && !d.locked && !d.charOnly) d.target = 1;
     }
   }
 
@@ -241,13 +250,36 @@ export class World {
     // ---------- Airlock (visitor queue) ----------
     this.room(-3, 3, -6, 0, 3.2, M.concreteFloor, M.ceiling);
     this.wall(-3, -6, 3, -6, 3.2, M.concrete, [{ c: 0, w: 2.2, h: 2.6 }]);
-    this.wall(-3, -6, -3, 0, 3.2, M.concrete);
+    this.wall(-3, -6, -3, 0, 3.2, M.concrete, [{ c: -2.5, w: 1.2, h: 2.3 }]);
     this.wall(3, -6, 3, 0, 3.2, M.concrete);
+    this.slidingDoor('airlockSide', -3, -2.5, 'z', 1.2, 2.3, M.panel, { charOnly: true });
+    this.sign('DECONTAMINATION ▶', -2.88, 2.55, -2.5, Math.PI / 2, 0.9, 0.18);
+    // visitor corridor: airlock -> decontamination (visitor entry)
+    this.room(-7.4, -3, -3.2, -1.8, 2.6, M.concreteFloor, M.ceiling);
+    this.room(-7.4, -6, -1.8, 11.2, 2.6, M.concreteFloor, M.ceiling);
+    this.wall(-7.4, -3.2, -3, -3.2, 2.6, M.panel);
+    this.wall(-6, -1.8, -3, -1.8, 2.6, M.panel);
+    this.wall(-7.4, -3.2, -7.4, 11.2, 2.6, M.panel);
+    this.wall(-6, -1.8, -6, 9, 2.6, M.panel);
+    this.wall(-7.4, 11.2, -6, 11.2, 2.6, M.panel);
+    for (const z of [-2.5, 2.5, 7.5]) { this.ceilingLight(-6.7, 2.6, z, 0.25, 1.0, 1.5, 0xe8eeff, false); const pl = new THREE.PointLight(0xe8eeff, 0.8, 5, 2); pl.position.set(-6.7, 2.3, z); this.group.add(pl); }
     const outer = this.slidingDoor('outer', 0, -6, 'x', 2.2, 2.6, M.rust, { auto: false });
     outer.locked = true;
     // dusty light from outside
     const outside = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), new THREE.MeshBasicMaterial({ color: 0xe0a060 }));
-    outside.position.set(0, 1.4, -6.6); this.group.add(outside);
+    outside.position.set(0, 1.4, -8.6); this.group.add(outside);
+    this.outsidePlane = outside;
+    const rainN = 500;
+    this.rain = new THREE.InstancedMesh(new THREE.BoxGeometry(0.004, 0.22, 0.004), new THREE.MeshBasicMaterial({ color: 0xaabbcc, transparent: true, opacity: 0.45 }), rainN);
+    this.rain.visible = false; this.rain.frustumCulled = false;
+    const rd = Array.from({ length: rainN }, () => [Math.random() * 3 - 1.5, Math.random() * 3, -6.4 - Math.random() * 2]);
+    const rm = new THREE.Matrix4();
+    this.group.add(this.rain);
+    this.updaters.push((dt) => {
+      if (!this.rain.visible) return;
+      for (let k = 0; k < rainN; k++) { const d = rd[k]; d[1] -= dt * 7; if (d[1] < 0) d[1] += 3; rm.makeTranslation(d[0], d[1], d[2]); this.rain.setMatrixAt(k, rm); }
+      this.rain.instanceMatrix.needsUpdate = true;
+    });
     this.spot(0, 2.75, 0.2, 0, 1.2, -0.9, 4, 0.6, 0xfff1dc, true, 8);
     this.spot(0, 3.05, -2.2, 0, 0.5, -0.8, 1.5, 0.7, 0xffe0c0, false, 6);
     this.spot(0, 2.4, -6.3, 0, 0, -2, 6, 0.6, 0xffb070, false, 9);
@@ -327,13 +359,13 @@ export class World {
     // ---------- Washroom ----------
     this.room(-6, 6, 9, 21, 3.4, M.floorTiles, M.ceiling);
     this.wall(-6, 9, 6, 9, 3.4, M.tiles, [{ c: 0, w: 1.4, h: 2.3 }]);
-    this.wall(-6, 9, -6, 21, 3.4, M.tiles, [{ c: 18.8, w: 1.4, h: 2.3 }, { c: 10.4, w: 1.2, h: 2.3, block: true }]);
+    this.wall(-6, 9, -6, 21, 3.4, M.tiles, [{ c: 18.8, w: 1.4, h: 2.3 }, { c: 10.4, w: 1.2, h: 2.3 }]);
     this.wall(6, 9, 6, 21, 3.4, M.tiles, [{ c: 17.8, w: 1.4, h: 2.3 }]);
     this.wall(-6, 21, 6, 21, 3.4, M.tiles, [{ c: -3.5, w: 1.8, h: 2.6, block: true }, { c: 4, w: 1.8, h: 2.6, block: true }]);
     this.slidingDoor('washroom', 0, 9, 'x', 1.4, 2.3, M.panelLight);
     this.slidingDoor('lab', 6, 17.8, 'z', 1.4, 2.3, M.panelLight);
     this.slidingDoor('interro', -6, 18.8, 'z', 1.4, 2.3, M.panelLight);
-    const decon = this.slidingDoor('deconEntry', -6, 10.4, 'z', 1.2, 2.3, M.rust, { auto: false });
+    const decon = this.slidingDoor('deconEntry', -6, 10.4, 'z', 1.2, 2.3, M.rust, { charOnly: true });
     const haven = this.slidingDoor('haven', -3.5, 21, 'x', 1.8, 2.6, new THREE.MeshStandardMaterial({ color: 0xc8d4d6, metalness: 0.6, roughness: 0.3 }), { auto: false });
     const waste = this.slidingDoor('waste', 4, 21, 'x', 1.8, 2.6, M.rust, { auto: false });
     this.sign('HAVEN ▲', -3.5, 2.95, 20.88, Math.PI, 1.3, 0.3, { bg: '#0d2a2a', fg: '#7ff0e0', border: '#7ff0e0', glow: true });
@@ -449,7 +481,8 @@ export class World {
     this.wall(-14, 22, -6, 22, 2.9, M.concrete);
     this.wall(-14, 16, -14, 22, 2.9, M.concrete);
     this.wall(-6, 21, -6, 22, 2.9, M.concrete);
-    this.wall(-9, 16, -9, 22, 2.9, M.concrete, [{ c: 19, w: 3.4, h: 2.3, sill: 0.95, block: true }]);
+    this.wall(-9, 16, -9, 22, 2.9, M.concrete, [{ c: 19, w: 3.4, h: 2.3, sill: 0.95, block: true }, { c: 21.35, w: 0.9, h: 2.2 }]);
+    this.slidingDoor('interroCell', -9, 21.35, 'z', 0.9, 2.2, M.darkMetal, { charOnly: true });
     const iglass = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.35), new THREE.MeshPhysicalMaterial({ color: 0x8899aa, metalness: 0.9, roughness: 0.05, transparent: true, opacity: 0.22 }));
     iglass.position.set(-9, 1.625, 19); iglass.rotation.y = Math.PI / 2; this.group.add(iglass);
     this.box(0.9, 0.05, 1.4, M.metal, -11.1, 0.76, 19); this.box(0.06, 0.74, 0.06, M.metal, -11.1, 0.37, 19);
@@ -466,15 +499,21 @@ export class World {
     this.interroLight = this.spot(-11.3, 2.85, 19, -11.6, 0, 19, 14, 0.7, 0xffe2b0, true, 6);
     const bulb = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.18, 24, 1, true), M.darkMetal); bulb.position.set(-11.3, 2.55, 19); this.group.add(bulb);
     this.ceilingLight(-7.5, 2.9, 19, 0.3, 1.0, 1.5, 0xccd8ff);
-    this.box(0.5, 1.05, 0.5, M.darkMetal, -8.7, 0.525, 21.2, { collide: true });
+    this.box(0.5, 1.05, 0.5, M.darkMetal, -8.6, 0.525, 16.6, { collide: true });
     this.interroConsoleScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.3), new THREE.MeshStandardMaterial({ color: 0x100800, emissive: 0xffaa33, emissiveIntensity: 0.35, emissiveMap: signTexture(['INTERROGATION', 'RECORD'], { bg: '#100800', fg: '#ffbb55', border: '#ffbb55', h: 320 }) }));
-    this.interroConsoleScreen.position.set(-8.7, 1.2, 20.94); this.interroConsoleScreen.rotation.y = Math.PI; this.interroConsoleScreen.rotation.x = 0;
+    this.interroConsoleScreen.position.set(-8.6, 1.2, 16.86); this.interroConsoleScreen.rotation.y = 0;
     this.group.add(this.interroConsoleScreen);
-    this.interact.interroConsole = this.box(0.6, 0.8, 0.6, new THREE.MeshBasicMaterial({ visible: false }), -8.7, 1.0, 21.2, { cast: false });
+    this.interact.interroConsole = this.box(0.6, 0.8, 0.6, new THREE.MeshBasicMaterial({ visible: false }), -8.6, 1.0, 16.6, { cast: false });
 
     // global ambient
     const hemi = new THREE.HemisphereLight(0xb8c4d0, 0x2a2420, 0.35);
     this.group.add(hemi);
+  }
+
+  setRain(on) {
+    this.raining = on;
+    this.rain.visible = on;
+    this.outsidePlane.material.color.set(on ? 0x56606a : 0xe0a060);
   }
 
   update(dt, playerPos, extra) {

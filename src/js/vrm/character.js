@@ -204,7 +204,7 @@ export class Character {
       const mat = baseMat.clone();
       mat.userData = { ...baseMat.userData, uvDensity: uvDensity(src, g.tris) };
       applyFabric(mat, g.fabric);
-      patchMaterial(mat, 'cloth', { hvOverlay: { value: surf.layers.ov.tex }, hvGlow: { value: surf.layers.glow.tex }, hvOverlayOn: { value: 1 }, hvHighlight: { value: 0 } });
+      patchMaterial(mat, 'cloth', { hvOverlay: { value: surf.layers.ov.tex }, hvGlow: { value: surf.layers.glow.tex }, hvOverlayOn: { value: 1 }, hvHighlight: { value: 0 }, hvClothWet: { value: 0 }, hvWetDark: { value: 0 }, hvWetSheer: { value: 0 } });
       const sm = new THREE.SkinnedMesh(geom, mat);
       sm.bind(mesh.skeleton, mesh.bindMatrix);
       sm.morphTargetInfluences = mesh.morphTargetInfluences;
@@ -298,6 +298,28 @@ export class Character {
   // 1 = normal pupils, < 1 constricted (bright light in the eyes)
   setPupil(v) { for (const m of this.irisMats) if (m.userData.hv?.hvPupil) m.userData.hv.hvPupil.value = v; }
   lookAt(obj) { if (this.vrm.lookAt) { this.vrm.lookAt.target = obj; this.vrm.lookAt.autoUpdate = !!obj; if (!obj) this.vrm.lookAt.reset?.(); } }
+  // Wet clothing: cloth fabrics darken; light soft cloth (cotton) becomes see-through.
+  setClothWet(w) {
+    this.clothWet = w;
+    const CLOTH = ['cotton', 'knit', 'denim', 'silk', 'sheer'];
+    for (const it of this.items.values()) for (const m of it.meshes) {
+      const mat = m.material, u = mat.userData.hv;
+      if (!u?.hvClothWet) continue;
+      const fab = mat.userData.fabric || 'cotton';
+      u.hvClothWet.value = w;
+      u.hvWetDark.value = CLOTH.includes(fab) ? 1 : 0;
+      u.hvWetSheer.value = fab === 'cotton' ? 1 : 0;
+      const seeThrough = w > 0.01 && fab === 'cotton';
+      if (seeThrough !== !!mat.userData.wetBlend) {
+        mat.userData.wetBlend = seeThrough;
+        if (mat.userData.dryAlphaTest === undefined) mat.userData.dryAlphaTest = mat.alphaTest;
+        mat.transparent = seeThrough || fab === 'sheer' || fab === 'glass';
+        mat.alphaTest = seeThrough ? 0.02 : mat.userData.dryAlphaTest;
+        mat.needsUpdate = true;
+      }
+    }
+  }
+
   setWetAll(v) { for (const m of this.skinMats) m.userData.hv.hvWetAll.value = v; }
   setHairWet(w) {
     this.hairWet = w;

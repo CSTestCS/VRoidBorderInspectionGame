@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GLOBAL_UNIFORMS } from './vrm/materials.js';
 import { audio } from './audio.js';
 import { damp, clamp } from './util.js';
+import { keys as KB } from './keys.js';
 
 export const TOOLS = [
   { id: 'hand', key: '1', label: 'Hands' },
@@ -212,9 +213,9 @@ export class Player {
     const k = this.keys;
     const moving = this.enabled;
     // movement
-    const speed = (k.ShiftLeft || k.ShiftRight ? 3.8 : 2.3) * (1 - this.crouch * 0.5);
-    const f = (moving && (k.KeyW || k.ArrowUp) ? 1 : 0) - (moving && (k.KeyS || k.ArrowDown) ? 1 : 0);
-    const s = (moving && (k.KeyD || k.ArrowRight) ? 1 : 0) - (moving && (k.KeyA || k.ArrowLeft) ? 1 : 0);
+    const speed = (k[KB.run] ? 3.8 : 2.3) * (1 - this.crouch * 0.5);
+    const f = (moving && (k[KB.forward] || k.ArrowUp) ? 1 : 0) - (moving && (k[KB.back] || k.ArrowDown) ? 1 : 0);
+    const s = (moving && (k[KB.right] || k.ArrowRight) ? 1 : 0) - (moving && (k[KB.left] || k.ArrowLeft) ? 1 : 0);
     const dir = new THREE.Vector3(Math.sin(this.yaw) * -f + Math.cos(this.yaw) * s, 0, Math.cos(this.yaw) * -f - Math.sin(this.yaw) * s);
     if (dir.lengthSq() > 0) dir.normalize().multiplyScalar(speed);
     this.vel.x = damp(this.vel.x, dir.x, 12, dt);
@@ -231,7 +232,7 @@ export class Player {
     const moved = Math.hypot(this.pos.x - before.x, this.pos.z - before.z);
     this.stepDist += moved;
     if (this.stepDist > 0.75) { this.stepDist = 0; audio.step(); }
-    this.crouch = damp(this.crouch, moving && (k.ControlLeft || k.KeyC) ? 1 : 0, 10, dt);
+    this.crouch = damp(this.crouch, moving && k[KB.crouch] ? 1 : 0, 10, dt);
     this.zoom = damp(this.zoom, moving && this.mouse.right ? 1 : 0, 10, dt);
     const fov = 70 - this.zoom * 44;
     if (Math.abs(this.camera.fov - fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }

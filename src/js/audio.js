@@ -1,9 +1,10 @@
-import { speak, makeVoiceProfile } from './voice.js';
+import { speak, makeVoiceProfile, speakTTS } from './voice.js';
 // Procedural sound effects via WebAudio.
 export class Audio {
   constructor() {
     this.ctx = null;
     this.volume = 0.8;
+    this.voiceMode = 'speech';
     this.levels = { sfx: 1, voice: 1, water: 0.7, ambience: 0.8 };
     this.loops = {};
   }
@@ -107,6 +108,10 @@ export class Audio {
   voice(text, female = true, opts = {}) {
     if (!this.ensure()) return { duration: 0, syllables: [] };
     const profile = opts.profile || makeVoiceProfile(female ? 7 : 3, female ? 'female' : 'male');
+    if (this.voiceMode !== 'babble') {
+      const r = speakTTS(text, profile, { volume: this.volume * (this.levels.voice ?? 1), emotion: opts.emotion });
+      if (r) return r;
+    }
     return speak(this.ctx, this.voiceIn || this.bus.voice, this.noise, text, { ...opts, profile });
   }
 }

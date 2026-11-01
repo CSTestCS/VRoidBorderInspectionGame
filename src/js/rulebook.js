@@ -1,6 +1,8 @@
 // The in-game procedures manual (Tab).
 import { el } from './util.js';
 import { drawSeal } from './idcard.js';
+import { keys as KB, keyName } from './keys.js';
+const kk = (a) => el('kbd', {}, keyName(KB[a]));
 
 function sealCanvas() {
   const c = document.createElement('canvas'); c.width = 520; c.height = 260;
@@ -82,8 +84,8 @@ const PAGES = {
       el('li', {}, el('kbd', {}, 'E'), ' or left click (hands): interact'),
       el('li', {}, el('kbd', {}, '1'), ' hands · ', el('kbd', {}, '2'), ' flashlight · ', el('kbd', {}, '3'), ' UV lamp · ', el('kbd', {}, '4'), ' Geiger counter · ', el('kbd', {}, '5'), ' hose (after taking it from the reel)'),
       el('li', {}, el('kbd', {}, 'Left mouse'), ' (hold, hose equipped): spray water'),
-      el('li', {}, el('kbd', {}, 'T'), ' visitor raise/lower arms · ', el('kbd', {}, 'R'), ' visitor turn around'),
-      el('li', {}, el('kbd', {}, 'I'), ' view the ID card (after the booth) · ', el('kbd', {}, 'Tab'), ' this manual · ', el('kbd', {}, 'Esc'), ' pause / close'),
+      el('li', {}, kk('arms'), ' visitor raise/lower arms · ', kk('turn'), ' visitor turn around (rebind keys in Settings → Key bindings)'),
+      el('li', {}, kk('idcard'), ' view the ID card (after the booth) · ', el('kbd', {}, 'Tab'), ' this manual · ', el('kbd', {}, 'Esc'), ' pause / close'),
       el('li', {}, el('kbd', {}, 'F11'), ' fullscreen'))),
 };
 

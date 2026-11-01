@@ -542,6 +542,10 @@ export class Face {
     }
     const tgt = {};
     for (const e of EMOTIONS) tgt[e] = this.base[e] || 0;
+    // standing attitude toward the officer colours the resting face
+    const att = this.attitude || 0;
+    tgt.happy += Math.max(0, att) * 0.28;
+    tgt.angry += Math.max(0, -att - 0.15) * 0.35;
     this.timed = this.timed.filter((t) => t.until > this.time);
     for (const t of this.timed) {
       for (const e of EMOTIONS) if (e !== t.name) tgt[e] *= 0.3;

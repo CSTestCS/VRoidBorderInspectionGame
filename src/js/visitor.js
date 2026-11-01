@@ -37,7 +37,15 @@ export function rollProblems(rng) {
   const ks = [];
   for (let k = 1; k < PROBLEMS.length; k++) ks.push([k, Math.pow(0.48, k - 1)]);
   const k = rng.weighted(ks);
-  return rng.shuffle(PROBLEMS).slice(0, k);
+  // weighted draw without replacement: contaminated clothing is the most common issue
+  const pool = PROBLEMS.map((p) => [p, p === 'contaminatedClothing' ? 2.6 : 1]);
+  const out = [];
+  while (out.length < k && pool.length) {
+    const pick = rng.weighted(pool);
+    out.push(pick);
+    pool.splice(pool.findIndex(([p]) => p === pick), 1);
+  }
+  return out;
 }
 
 const pickW = (rng, list) => rng.weighted(list);
@@ -141,7 +149,7 @@ export function generateVisitor(seed, models, opts = {}) {
   const clothing = {};
   for (const it of items) clothing[it.id] = it.category === 'shoes' ? (rng.chance(0.6) ? 'mud' : 'none') : rng.chance(0.28) ? 'mud' : 'none';
   if (problems.has('contaminatedClothing') && items.length) {
-    const n = items.length > 1 && rng.chance(0.3) ? 2 : 1;
+    const n = Math.min(items.length, rng.weighted([[1, 6], [2, 3], [3, 1]]));
     for (const it of rng.shuffle(items).slice(0, n)) clothing[it.id] = rng.weighted([['bio', 3], ['bioUV', 2], ['rad', 2], ['chem', 1.5], ['lice', 1.5]]);
   }
 
