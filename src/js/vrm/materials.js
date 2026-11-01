@@ -203,6 +203,8 @@ export function convertMaterial(src, role) {
     default:
       m = new THREE.MeshStandardMaterial({ ...base, roughness: 0.7, metalness: 0 });
   }
+  // double-sided surfaces self-shadow badly (striped "acne"); cast from back faces
+  if (m.side === THREE.DoubleSide) m.shadowSide = THREE.BackSide;
   m.userData.role = role;
   m.userData.baseColor = p.color;
   return m;

@@ -177,8 +177,8 @@ export class World {
     if (shadow) {
       s.castShadow = true;
       s.shadow.mapSize.set(this.shadowQuality, this.shadowQuality);
-      s.shadow.bias = -0.0002;
-      s.shadow.normalBias = 0.02;
+      s.shadow.bias = -0.0005;
+      s.shadow.normalBias = 0.03;
       s.shadow.camera.near = 0.3;
     }
     this.lights.push(s);
