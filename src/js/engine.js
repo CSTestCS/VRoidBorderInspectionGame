@@ -58,7 +58,7 @@ export class Engine {
     this.composer = new EffectComposer(r);
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(this.renderPass);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.35, 0.5, 0.92);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.12, 0.4, 1.0);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.vignette = new ShaderPass(VignetteShader);

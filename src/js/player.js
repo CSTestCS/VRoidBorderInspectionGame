@@ -44,6 +44,7 @@ export class Player {
     this.geigerAcc = 0;
     this.extraColliders = () => [];
     this.onSpray = null;
+    this.aimDistanceFn = null; // distance along the view ray to whatever the reticle is on
     this.toolGroup = new THREE.Group();
     this.camera.add(this.toolGroup);
     this._buildTools();
@@ -158,6 +159,15 @@ export class Player {
 
   forward(target = new THREE.Vector3()) { return this.camera.getWorldDirection(target); }
 
+  // direction from the nozzle to the point under the reticle
+  sprayDir(target = new THREE.Vector3()) {
+    const cam = this.camera.getWorldPosition(new THREE.Vector3());
+    const fwd = this.forward();
+    const dist = Math.max(0.6, Math.min(6, this.aimDistanceFn?.(cam, fwd) ?? 3));
+    const aim = cam.addScaledVector(fwd, dist);
+    return target.copy(aim).sub(this.nozzleWorld()).normalize();
+  }
+
   update(dt) {
     const k = this.keys;
     const moving = this.enabled;
@@ -213,10 +223,12 @@ export class Player {
     const spraying = tool === 'hose' && this.mouse.left && this.enabled;
     this.spraying = spraying;
     audio.loop('hose', spraying, { freq: 1400, q: 0.5, gain: 0.22 });
-    this._updateDrops(dt, spraying);
+    this.camera.updateMatrixWorld();
+    const sprayDir = spraying ? this.sprayDir() : null;
+    this._updateDrops(dt, spraying, sprayDir);
     if (spraying && this.onSpray) {
       const o = this.nozzleWorld();
-      this.onSpray(o, this.forward(), dt);
+      this.onSpray(o, sprayDir, dt);
     }
   }
 
@@ -234,11 +246,11 @@ export class Player {
     t.needsUpdate = true;
   }
 
-  _updateDrops(dt, spraying) {
+  _updateDrops(dt, spraying, dir) {
     const D = this.dropData;
     if (spraying) {
       const o = this.nozzleWorld();
-      const fwd = this.forward();
+      const fwd = dir || this.forward();
       const n = Math.floor(dt * 900);
       for (let i = 0; i < n; i++) {
         const d = D[this.dropIdx]; this.dropIdx = (this.dropIdx + 1) % D.length;

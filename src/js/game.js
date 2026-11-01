@@ -55,6 +55,13 @@ export class Game {
     this.player.radiationFn = (p) => this.radiationAt(p);
     this.player.extraColliders = () => (this.run?.ch && this.run.phase !== 'gone' ? [{ x: this.run.ch.root.position.x, z: this.run.ch.root.position.z, r: 0.25 }] : []);
     this.player.onSpray = (o, d, dt) => this.onSpray(o, d, dt);
+    this.player.aimDistanceFn = (origin, dir) => {
+      const hit = this.run?.proxies?.raycast(origin, dir, 6, ['skin', 'hair', 'item']);
+      if (hit) return hit.distance;
+      this.raycaster.set(origin, dir); this.raycaster.far = 6;
+      const w = this.raycaster.intersectObject(this.world.group, true).find((h) => h.object.visible && h.object.material?.visible !== false);
+      return w ? w.distance : 3;
+    };
     this.player.teleport(SPOTS.playerStart, 0, -0.05);
     this.raycaster = new THREE.Raycaster();
     this.setupHandlers();
@@ -1013,6 +1020,8 @@ export class Game {
       return;
     }
     if (this.paused) return;
+    const tk = this.ui.tutorialKeys?.[e.code === 'NumpadEnter' ? 'Enter' : e.code];
+    if (tk) { e.preventDefault(); tk(); return; }
     if (e.code === 'KeyE') this.interact();
     else if (e.code === 'Tab') { e.preventDefault(); this.openRulebook(); }
     else if (e.code === 'KeyC' && !e.ctrlKey && this.run?.cardFront && this.run.phase !== 'booth') this.openCard();

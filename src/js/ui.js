@@ -52,12 +52,21 @@ export class UI {
     setTimeout(() => t.remove(), seconds * 1000);
   }
   tutorial(title, html, buttons = []) {
-    if (!title) { this.tutEl.classList.add('hidden'); return; }
+    if (!title) { this.tutEl.classList.add('hidden'); this.tutorialKeys = {}; return; }
     this.tutEl.classList.remove('hidden');
     this.tutEl.innerHTML = '';
     this.tutEl.append(el('h3', {}, title));
     const body = el('div'); body.innerHTML = html; this.tutEl.append(body);
-    if (buttons.length) this.tutEl.append(el('div', { class: 'tbtns' }, buttons.map((b) => el('button', { class: b.primary ? 'primary' : '', onclick: b.onClick }, b.label))));
+    // the mouse is usually captured while playing, so every tutorial button has a key
+    this.tutorialKeys = {};
+    const keyFor = (b, i) => b.key || (b.primary ? 'Enter' : i === 1 ? 'Backspace' : null);
+    if (buttons.length) {
+      this.tutEl.append(el('div', { class: 'tbtns' }, buttons.map((b, i) => {
+        const k = keyFor(b, i);
+        if (k) this.tutorialKeys[k] = b.onClick;
+        return el('button', { class: b.primary ? 'primary' : '', onclick: b.onClick }, b.label, k ? el('kbd', { style: { marginLeft: '8px' } }, k === 'Backspace' ? '⌫' : k) : null);
+      })));
+    }
   }
 
   get modalOpen() { return this.modals.length > 0; }

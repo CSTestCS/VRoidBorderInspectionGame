@@ -30,7 +30,8 @@ Start a **New Game** and play the tutorial (skippable) — it walks through one 
 | `R` / `T` | ask the visitor to raise arms / turn around |
 | `C` | view the visitor's ID card |
 | `Tab` | procedures manual |
-| `Esc` | pause / close panel, `F11` fullscreen |
+| `Enter` | confirm the tutorial prompt (Continue / Start Day 1) |
+| `Esc` | pause / close panel (frees the mouse), `F11` fullscreen |
 
 ### The stations
 
