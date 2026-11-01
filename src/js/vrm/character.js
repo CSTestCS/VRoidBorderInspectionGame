@@ -27,6 +27,22 @@ export function clearCleanedCache(modelId) {
 
 const ANCHORS = { top: 'chest', outer: 'chest', bottom: 'hips', onepiece: 'spine', socks: 'leftLowerLeg', shoes: 'leftFoot', gloves: 'leftHand', hat: 'head', accessory: 'upperChest' };
 
+// UV centre and radius of each eye's iris (split by which side of the face)
+function irisLayout(g) {
+  const pos = g.attributes.position, uv = g.attributes.uv;
+  const sides = [[], []];
+  const used = new Set(g.index ? g.index.array : []);
+  for (const i of used) sides[pos.getX(i) > 0 ? 0 : 1].push(i);
+  const fit = (ids) => {
+    if (!ids.length || !uv) return { c: new THREE.Vector2(0.5, 0.5), r: new THREE.Vector2(0.5, 0.5) };
+    let a = [Infinity, Infinity], b = [-Infinity, -Infinity];
+    for (const i of ids) { const u = uv.getX(i), v = uv.getY(i); a = [Math.min(a[0], u), Math.min(a[1], v)]; b = [Math.max(b[0], u), Math.max(b[1], v)]; }
+    return { c: new THREE.Vector2((a[0] + b[0]) / 2, (a[1] + b[1]) / 2), r: new THREE.Vector2(Math.max(1e-3, (b[0] - a[0]) / 2), Math.max(1e-3, (b[1] - a[1]) / 2)) };
+  };
+  const L = fit(sides[0]), R = fit(sides[1].length ? sides[1] : sides[0]);
+  return { c0: L.c, r0: L.r, c1: R.c, r1: R.r };
+}
+
 const setSRGB = (color, rgb) => color.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
 
 export class Character {
@@ -115,7 +131,11 @@ export class Character {
       } else if (role === 'hair') {
         patchMaterial(mat, 'hair', { hvHairWet: { value: 0 } });
         this.hairMats.push(mat);
-      } else if (role === 'eyeIris') this.irisMats.push(mat);
+      } else if (role === 'eyeIris') {
+        this.irisMats.push(mat);
+        const e = irisLayout(mesh.geometry);
+        patchMaterial(mat, 'iris', { hvEyeC0: { value: e.c0 }, hvEyeC1: { value: e.c1 }, hvEyeR0: { value: e.r0 }, hvEyeR1: { value: e.r1 }, hvPupil: { value: 1 } });
+      }
       else if (role === 'eyeWhite') this.scleraMats.push(mat);
       else if (role === 'faceDetail' && /Brow/i.test(part.name)) this.browMats.push(mat);
       else if (role === 'cloth' || role === 'other') this._splitCloth(part, mat, mc, boneNamesFor(mesh));
@@ -260,6 +280,9 @@ export class Character {
   setUnderwearTexture(tex) {
     for (const m of this.skinMats) if (m.userData.hv.hvUw) { m.userData.hv.hvUw.value = tex || BLANK_TEXTURE; m.userData.hv.hvUwOn.value = tex ? 1 : 0; }
   }
+  // 1 = normal pupils, < 1 constricted (bright light in the eyes)
+  setPupil(v) { for (const m of this.irisMats) if (m.userData.hv?.hvPupil) m.userData.hv.hvPupil.value = v; }
+  lookAt(obj) { if (this.vrm.lookAt) { this.vrm.lookAt.target = obj; this.vrm.lookAt.autoUpdate = !!obj; if (!obj) this.vrm.lookAt.reset?.(); } }
   setWetAll(v) { for (const m of this.skinMats) m.userData.hv.hvWetAll.value = v; }
   setHairWet(w) {
     this.hairWet = w;

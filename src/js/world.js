@@ -249,15 +249,16 @@ export class World {
     this.spot(0, 3.05, -2.2, 0, 0.5, -0.8, 1.5, 0.7, 0xffe0c0, false, 6);
     this.spot(0, 2.4, -6.3, 0, 0, -2, 6, 0.6, 0xffb070, false, 9);
     this.ceilingLight(0, 3.2, -4, 1.2, 0.3, 3, 0xfff0d8);
-    // height chart behind the visitor
-    const chart = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.8 * 1), new THREE.MeshStandardMaterial({ map: heightChartTexture(), roughness: 0.8, color: 0xa8a8a8 }));
-    chart.position.set(0, 1.3 + 0.4, -1.26);
+    // height chart on a post beside the visitor (130-210 cm marks)
+    const chart = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.8), new THREE.MeshStandardMaterial({ map: heightChartTexture(), roughness: 0.8, color: 0xb8b8b8 }));
+    chart.position.set(0.42, 1.7, -0.77);
     this.group.add(chart);
-    this.box(1.0, 0.95, 0.04, M.darkMetal, 0, 1.7, -1.29);
-    this.box(1.0, 1.25, 0.04, M.darkMetal, 0, 0.625, -1.29);
+    this.box(0.24, 0.84, 0.03, M.darkMetal, 0.42, 1.7, -0.79);
+    this.box(0.05, 2.15, 0.05, M.darkMetal, 0.42, 1.075, -0.82);
+    this.box(0.3, 0.03, 0.3, M.darkMetal, 0.42, 0.015, -0.82);
+    this.colliders.push([0.3, 0.55, -0.9, -0.7]);
     this.box(0.5, 0.01, 0.5, M.hazard, 0, 0.006, -0.8, { cast: false });
-    this.sign('STAND HERE', 0, 2.24, -1.26, 0, 0.8, 0.12, { font: 'bold 60px Arial', border: null });
-    this.colliders.push([-0.5, 0.5, -1.33, -1.25]);
+    this.sign('STAND HERE', 0, 0.008, -0.42, 0, 0.5, 0.08, { font: 'bold 60px Arial', border: null, bg: '#151515', fg: '#d6a91c' }).rotation.x = -Math.PI / 2;
     this.sign(['CHECKPOINT 7', 'HAVEN ENTRY'], 1.9, 2.4, -5.88, 0, 1.4, 0.5, { h: 180 });
 
     // ---------- Booth ----------

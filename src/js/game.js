@@ -129,6 +129,7 @@ export class Game {
     ch.face.eyesClosed = 1;
     ch.face.setBase({ relaxed: 0.6 });
     ch.animator.lookTarget = null;
+    ch.lookAt(null);
     ch.setLayers({ fx: 0.4 });
     this.scene.add(ch.root);
   }
@@ -183,6 +184,7 @@ export class Game {
       ch.root.rotation.y = 0;
       ch.animator.lookTarget = this.engine.camera;
       ch.animator.lookWeight = 0.15;
+      ch.lookAt(this.engine.camera);
       this.scene.add(ch.root);
       this.updateHUD();
       this.world.doors.outer.set(1);
@@ -342,7 +344,9 @@ export class Game {
         },
       }, q));
     }
-    this.ui.modal(el('div', {}, el('p', { class: 'muted' }, 'Ask the visitor questions. Watch how they answer.'), list, log), { side: true, title: 'Intercom' });
+    const m = this.ui.modal(el('div', {}, el('p', { class: 'muted' }, 'Ask the visitor questions. Watch how they answer.'), list, log,
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => m.close() }, 'Hang up (Esc)'))), { side: true, title: 'Intercom' });
+    m.keys = (e) => { if (e.code === 'KeyE' || e.code === 'KeyQ') m.close(); };
   }
 
   stamp(kind) {
@@ -462,7 +466,6 @@ export class Game {
     if (!it || it.removed || this.player.carrying) return;
     const first = !this.removableItems().some((o) => o.removed);
     run.ch.setItemVisible(itemId, false);
-    run.ch.setItemHighlight(null, false);
     const slot = it.meshes[0]?.userData.slot;
     const color = run.ch.slotColor(slot, it.meshes[0]?.material);
     this.player.carry({ itemId, name: it.name, color });
@@ -650,6 +653,7 @@ export class Game {
         ch.root.rotation.y = Math.PI / 2;
         ch.animator.setPose('sit');
         ch.animator.lookTarget = null;
+        ch.lookAt(null);
         ch.face.setBase({ sad: 0.4 });
         run.proxies?.dispose();
         this.recordResults(run.spec, this.evaluate(run, 'interro'));
@@ -757,7 +761,8 @@ export class Game {
     const run = I.run, s = run.spec, ch = run.ch;
     const log = el('div', { class: 'dialog-log', style: { maxHeight: '320px' } });
     const verdict = el('div');
-    const content = el('div', {}, el('p', { class: 'muted' }, `Subject: ${s.card.first} ${s.card.last} (ID stamp: ${run.idStamp})`), log, verdict);
+    const content = el('div', {}, el('p', { class: 'muted' }, `Subject: ${s.card.first} ${s.card.last} (ID stamp: ${run.idStamp})`), log, verdict,
+      el('div', { class: 'row' }, el('button', { onclick: () => m.close() }, 'Close (Esc) — decide later')));
     const m = this.ui.modal(content, { title: 'Interrogation Record', side: true });
     const add = (who, text, cls) => { log.append(el('div', { class: cls }, el('b', {}, who + ': '), text)); log.scrollTop = 1e6; };
     if (I.stage === 'waiting') {
@@ -1078,7 +1083,20 @@ export class Game {
       if (run.lastFaceHit && performance.now() - run.lastFaceHit > 900) { ch.face.eyesClosed = 0; run.lastFaceHit = 0; }
       if (ch.animator.shiver > 0 && !this.player.spraying) ch.animator.shiver = Math.max(run.phase === 'hose' ? 0.3 : 0, ch.animator.shiver - dt * 0.2);
       ch.face.squint = this.player.spraying && run.phase === 'hose' ? 0.6 : 0;
-      if (this.player.tool === 'flashlight' && this.player.pos.distanceTo(ch.root.position) < 2.2) ch.face.squint = Math.max(ch.face.squint, 0.4);
+      // flashlight in the eyes: pupils constrict quickly, re-dilate slowly
+      let lit = 0;
+      if (this.player.tool === 'flashlight' && !ch.face.eyesClosed) {
+        const cam = this.engine.camera.getWorldPosition(new THREE.Vector3());
+        const head = ch.boneWorld('head').add(new THREE.Vector3(0, 0.06 * (ch.look.scale || 1), 0));
+        const to = head.sub(cam);
+        const dist = to.length();
+        const ang = to.normalize().angleTo(this.player.forward());
+        if (dist < 4.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.06) / 0.22, 0, 1) * THREE.MathUtils.clamp(1.6 - dist / 3, 0.3, 1);
+      }
+      ch._pupil = damp(ch._pupil ?? 1, 1 - 0.5 * lit, lit > (1 - (ch._pupil ?? 1)) * 2 ? 9 : 1.2, dt);
+      ch.setPupil(ch._pupil);
+      if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); } }
+      else if (lit === 0) run._flinched = false;
     }
     // hover + prompt
     this._hoverAcc = (this._hoverAcc || 0) + dt;
@@ -1086,7 +1104,7 @@ export class Game {
       this._hoverAcc = 0;
       const prev = this.hover;
       this.hover = this.findHover();
-      if (run?.ch) run.ch.setItemHighlight(this.hover?.itemId || null, !!this.hover?.itemId);
+
       if (prev?.id !== this.hover?.id || prev?.label !== this.hover?.label) this.ui.prompt(this.hover ? (this.hover.action ? `<kbd>E</kbd> ${this.hover.label}` : this.hover.label) : '');
     }
     if (this.player.mouse.left && this.player.tool === 'hand' && this.player.enabled && !this._clickLatch) { this._clickLatch = true; this.interact(); }

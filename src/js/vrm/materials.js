@@ -122,6 +122,21 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
   totalEmissiveRadiance += hvGlowColor * texture2D(hvGlow, vMapUv).r * hvUvSpot() * 3.0 * hvOverlayOn;
   totalEmissiveRadiance += vec3(0.25, 0.55, 0.9) * hvHighlight * (0.55 + 0.45 * sin(hvTime * 6.0));
 `;
+    } else if (kind === 'iris') {
+      decl += 'uniform vec2 hvEyeC0; uniform vec2 hvEyeC1; uniform vec2 hvEyeR0; uniform vec2 hvEyeR1; uniform float hvPupil;';
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+  #ifdef USE_MAP
+  vec2 hvUvI = vMapUv;
+  vec2 hvD0 = (hvUvI - hvEyeC0) / hvEyeR0; vec2 hvD1 = (hvUvI - hvEyeC1) / hvEyeR1;
+  vec2 hvC = hvEyeC0; vec2 hvR = hvEyeR0; vec2 hvD = hvD0;
+  if (dot(hvD1, hvD1) < dot(hvD0, hvD0)) { hvC = hvEyeC1; hvR = hvEyeR1; hvD = hvD1; }
+  float hvRr = length(hvD);
+  // pupil size: exponent < 1 pulls iris texture inward (constricted pupil)
+  if (hvRr < 1.0 && hvRr > 1e-4) hvUvI = hvC + hvD / hvRr * pow(hvRr, hvPupil) * hvR;
+  vec4 sampledDiffuseColor = texture2D(map, hvUvI);
+  diffuseColor *= sampledDiffuseColor;
+  #endif
+`);
     } else if (kind === 'card') {
       decl += 'uniform sampler2D hvGlow;';
       emissiveCode = 'totalEmissiveRadiance += hvGlowColor * texture2D(hvGlow, vMapUv).r * hvUvSpot() * 2.5;';
