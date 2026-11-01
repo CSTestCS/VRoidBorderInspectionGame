@@ -87,7 +87,7 @@ export class World {
       wood: makeMaterial('wood', [1, 1]),
       ceiling: makeMaterial('panel', [3, 3], { color: 0x6a6e72 }),
       hazard: new THREE.MeshStandardMaterial({ map: hazardTexture(), roughness: 0.7 }),
-      glass: new THREE.MeshPhysicalMaterial({ color: 0xcfe2e2, metalness: 0, roughness: 0.03, transparent: true, opacity: 0.08, envMapIntensity: 0.6, depthWrite: false }),
+      glass: new THREE.MeshBasicMaterial({ color: 0xd8eaea, transparent: true, opacity: 0.05, depthWrite: false }),
       emissive: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xf4f6ff, emissiveIntensity: 2.2 }),
       black: new THREE.MeshStandardMaterial({ color: 0x0b0c0d, roughness: 0.6 }),
     };
@@ -246,11 +246,11 @@ export class World {
     const outside = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), new THREE.MeshBasicMaterial({ color: 0xe0a060 }));
     outside.position.set(0, 1.4, -6.6); this.group.add(outside);
     this.spot(0, 2.75, 0.2, 0, 1.2, -0.9, 4, 0.6, 0xfff1dc, true, 8);
-    this.spot(0, 3.05, -2.2, 0, 0.5, -0.8, 3, 0.7, 0xffe0c0, false, 6);
+    this.spot(0, 3.05, -2.2, 0, 0.5, -0.8, 1.5, 0.7, 0xffe0c0, false, 6);
     this.spot(0, 2.4, -6.3, 0, 0, -2, 6, 0.6, 0xffb070, false, 9);
     this.ceilingLight(0, 3.2, -4, 1.2, 0.3, 3, 0xfff0d8);
     // height chart behind the visitor
-    const chart = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.8 * 1), new THREE.MeshStandardMaterial({ map: heightChartTexture(), roughness: 0.8 }));
+    const chart = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.8 * 1), new THREE.MeshStandardMaterial({ map: heightChartTexture(), roughness: 0.8, color: 0xa8a8a8 }));
     chart.position.set(0, 1.3 + 0.4, -1.26);
     this.group.add(chart);
     this.box(1.0, 0.95, 0.04, M.darkMetal, 0, 1.7, -1.29);
@@ -385,10 +385,10 @@ export class World {
     this.terminalScreen.position.set(0.5, 1.45, 20.81); this.terminalScreen.rotation.y = Math.PI; this.group.add(this.terminalScreen);
     this.interact.terminal = this.box(0.95, 0.7, 0.3, new THREE.MeshBasicMaterial({ visible: false }), 0.5, 1.45, 20.8, { cast: false });
     // lights
-    this.ceilingLight(-3, 3.4, 12, 1.4, 0.35, 5); this.ceilingLight(3, 3.4, 12, 1.4, 0.35, 5);
-    this.ceilingLight(-3, 3.4, 18.5, 1.4, 0.35, 5); this.ceilingLight(3, 3.4, 18.5, 1.4, 0.35, 5);
-    this.platformLight = this.spot(0, 3.35, 15.4, 0, 0.9, 15, 30, 0.55, 0xffffff, true, 8);
-    this.spot(0, 3.3, 12.0, 0, 1.0, 15, 10, 0.5, 0xeef4ff, false, 9);
+    this.ceilingLight(-3, 3.4, 12, 1.4, 0.35, 2.6); this.ceilingLight(3, 3.4, 12, 1.4, 0.35, 2.6);
+    this.ceilingLight(-3, 3.4, 18.5, 1.4, 0.35, 2.6); this.ceilingLight(3, 3.4, 18.5, 1.4, 0.35, 2.6);
+    this.platformLight = this.spot(0, 3.35, 14.2, 0, 0.9, 15, 9, 0.6, 0xffffff, true, 8);
+    this.spot(0, 3.3, 12.0, 0, 1.0, 15, 4, 0.5, 0xeef4ff, false, 9);
     // pipes along ceiling
     for (const x of [-5.6, 5.6]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 12, 12), M.metal); p.rotation.x = Math.PI / 2; p.position.set(x, 3.2, 15); this.group.add(p); }
 
