@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { loadVRM } from './loader.js';
 import { convertMaterial, patchMaterial, BLANK_TEXTURE, applyFabric, defaultFabric } from './materials.js';
 import { applyExpressionConfig } from './expressions.js';
+import { uvDensity } from './fabricTextures.js';
 import { cleanBodyTexture } from './underwear.js';
 import { Surface, makeLayer } from './fx.js';
 import { Animator, Face } from './pose.js';
@@ -166,7 +167,7 @@ export class Character {
       geom.setIndex(new THREE.BufferAttribute(idx, 1));
       geom.boundingSphere = src.boundingSphere;
       const mat = baseMat.clone();
-      mat.userData = { ...baseMat.userData };
+      mat.userData = { ...baseMat.userData, uvDensity: uvDensity(src, g.tris) };
       applyFabric(mat, g.fabric);
       patchMaterial(mat, 'cloth', { hvOverlay: { value: surf.layers.ov.tex }, hvGlow: { value: surf.layers.glow.tex }, hvOverlayOn: { value: 1 }, hvHighlight: { value: 0 } });
       const sm = new THREE.SkinnedMesh(geom, mat);
@@ -220,7 +221,10 @@ export class Character {
     }
     this.root.traverse((o) => {
       if (!o.isSkinnedMesh || !o.userData.slot) return;
-      setSRGB(o.material.color, this.slotColor(o.userData.slot, o.material));
+      const c = this.slotColor(o.userData.slot, o.material);
+      setSRGB(o.material.color, c);
+      // sheen takes on the cloth's own colour so dark fabric doesn't glow white
+      if (o.material.sheenColor) setSRGB(o.material.sheenColor, c.map((v) => Math.min(1, v * 0.8 + 0.12)));
     });
   }
 

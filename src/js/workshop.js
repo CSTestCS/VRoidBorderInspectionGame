@@ -41,8 +41,8 @@ export class Workshop {
     this.scene.background = new THREE.Color(0x1b2024);
     this.scene.environment = this.app.engine.envMap;
     this.scene.environmentIntensity = 0.5;
-    const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(1.5, 3, 2.5); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0005; key.shadow.normalBias = 0.03; this.scene.add(key);
-    this.scene.add(new THREE.HemisphereLight(0xe6eeff, 0x40362e, 0.9));
+    const key = new THREE.DirectionalLight(0xffffff, 2.7); key.position.set(1.5, 3, 2.5); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0005; key.shadow.normalBias = 0.03; this.scene.add(key);
+    this.scene.add(new THREE.HemisphereLight(0xe6eeff, 0x40362e, 0.5));
     const rim = new THREE.DirectionalLight(0x9fc4ff, 1.2); rim.position.set(-2, 2, -2); this.scene.add(rim);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(2.5, 64), new THREE.MeshStandardMaterial({ color: 0x30363b, roughness: 0.85 }));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.scene.add(floor);

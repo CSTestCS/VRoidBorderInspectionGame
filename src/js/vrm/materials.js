@@ -2,6 +2,7 @@
 // shader layers used by the game (skin fx, underwear, conditions, contamination,
 // UV-light fluorescence).
 import * as THREE from 'three';
+import { scaledFabricTextures } from './fabricTextures.js';
 
 // Uniforms shared by every patched material (UV flashlight state etc).
 export const GLOBAL_UNIFORMS = {
@@ -110,6 +111,9 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
     } else if (kind === 'cloth') {
       decl += 'uniform sampler2D hvOverlay; uniform sampler2D hvGlow; uniform float hvOverlayOn; uniform float hvHighlight;';
       colorCode = `
+  #ifdef USE_NORMALMAP
+  diffuseColor.rgb *= 0.86 + 0.28 * texture2D(normalMap, vNormalMapUv).a;
+  #endif
   vec4 hvO = texture2D(hvOverlay, vMapUv) * hvOverlayOn;
   diffuseColor.rgb = mix(diffuseColor.rgb, hvO.rgb, hvO.a);
 `;
@@ -217,11 +221,11 @@ export const FABRICS = [
   ['plastic', 'Plastic'], ['metal', 'Metal'],
 ];
 const P = {
-  cotton: { roughness: 0.92, metalness: 0, sheen: 0.45, sheenRoughness: 0.9, clearcoat: 0, normal: 0.35, anisotropy: 0 },
-  knit: { roughness: 0.95, metalness: 0, sheen: 0.7, sheenRoughness: 0.8, clearcoat: 0, normal: 1.0, anisotropy: 0 },
+  cotton: { roughness: 0.9, metalness: 0, sheen: 0.25, sheenRoughness: 0.75, clearcoat: 0, normal: 0.35, anisotropy: 0 },
+  knit: { roughness: 0.95, metalness: 0, sheen: 0.35, sheenRoughness: 0.7, clearcoat: 0, normal: 1.0, anisotropy: 0 },
   denim: { roughness: 0.88, metalness: 0, sheen: 0.2, sheenRoughness: 0.7, clearcoat: 0, normal: 0.6, anisotropy: 0 },
-  silk: { roughness: 0.32, metalness: 0, sheen: 1.0, sheenRoughness: 0.28, clearcoat: 0, normal: 0.25, anisotropy: 0.6 },
-  sheer: { roughness: 0.6, metalness: 0, sheen: 0.6, sheenRoughness: 0.5, clearcoat: 0, normal: 0.2, anisotropy: 0, opacity: 0.42 },
+  silk: { roughness: 0.32, metalness: 0, sheen: 0.6, sheenRoughness: 0.3, clearcoat: 0, normal: 0.25, anisotropy: 0.6 },
+  sheer: { roughness: 0.6, metalness: 0, sheen: 0.35, sheenRoughness: 0.5, clearcoat: 0, normal: 0.2, anisotropy: 0, opacity: 0.42 },
   leather: { roughness: 0.48, metalness: 0, sheen: 0, sheenRoughness: 0.5, clearcoat: 0.35, clearcoatRoughness: 0.45, normal: 0.5, anisotropy: 0 },
   latex: { roughness: 0.14, metalness: 0, sheen: 0, sheenRoughness: 0.5, clearcoat: 1, clearcoatRoughness: 0.05, normal: 0.15, anisotropy: 0 },
   rubber: { roughness: 0.7, metalness: 0, sheen: 0, sheenRoughness: 0.5, clearcoat: 0.1, clearcoatRoughness: 0.6, normal: 0.4, anisotropy: 0 },
@@ -240,7 +244,10 @@ export function applyFabric(m, fabric) {
   m.clearcoat = p.clearcoat;
   m.clearcoatRoughness = p.clearcoatRoughness ?? 0.2;
   m.anisotropy = p.anisotropy;
-  if (m.normalScale) m.normalScale.setScalar(p.normal);
+  const ft = scaledFabricTextures(fabric, m.userData.uvDensity);
+  m.normalMap = ft.flat ? null : ft.normal;
+  m.roughnessMap = ft.flat ? null : ft.rough;
+  if (m.normalScale) m.normalScale.setScalar(ft.flat ? 1 : 0.9);
   const sheer = p.opacity != null;
   if (m.userData.baseAlphaTest === undefined) m.userData.baseAlphaTest = m.alphaTest;
   m.transparent = sheer;
