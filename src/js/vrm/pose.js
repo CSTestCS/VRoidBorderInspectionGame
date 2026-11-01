@@ -526,8 +526,12 @@ export class Face {
   has(name) { return !!this.em?.getExpression(name); }
   setBase(emotions) { this.base = { ...emotions }; }
   flash(name, w = 1, seconds = 1.5) { this.timed.push({ name, w, until: this.time + seconds }); }
-  talk(seconds) { this.talkUntil = Math.max(this.talkUntil, this.time + seconds); }
-  stopTalking() { this.talkUntil = 0; }
+  // seconds: how long; syllables: [{t, d, v, w}] from the voice synth (lip-sync)
+  talk(seconds, syllables = null) {
+    this.talkUntil = Math.max(this.talkUntil, this.time + seconds);
+    this.speech = syllables && syllables.length ? { start: this.time + 0.03, syl: syllables } : null;
+  }
+  stopTalking() { this.talkUntil = 0; this.speech = null; }
 
   update(dt) {
     if (!this.em) return;
@@ -551,7 +555,12 @@ export class Face {
     let blink = Math.max(blinkCurve, this.eyesClosed, this.squint * 0.55);
     // talking mouth
     let mouth = 0;
-    if (this.time < this.talkUntil) {
+    if (this.speech && this.time < this.talkUntil) {
+      // follow the synthesized syllables: open on vowels, closed on consonants/pauses
+      const tt = this.time - this.speech.start;
+      const cur = this.speech.syl.find((x) => tt >= x.t && tt < x.t + x.d);
+      if (cur) { this.viseme = cur.v; mouth = cur.w * Math.sin(Math.PI * Math.min(1, (tt - cur.t) / cur.d)) ** 0.6; }
+    } else if (this.time < this.talkUntil) {
       this.visemeT -= dt;
       if (this.visemeT <= 0) { this.viseme = VISEMES[Math.floor(Math.random() * VISEMES.length)]; this.visemeT = 0.07 + Math.random() * 0.12; this.visemeW = 0.25 + Math.random() * 0.6; if (Math.random() < 0.15) this.visemeW = 0; }
       mouth = this.visemeW;

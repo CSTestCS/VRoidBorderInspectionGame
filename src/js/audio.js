@@ -1,3 +1,4 @@
+import { speak, makeVoiceProfile } from './voice.js';
 // Procedural sound effects via WebAudio.
 export class Audio {
   constructor() {
@@ -23,6 +24,10 @@ export class Audio {
       this.bus[k] = g;
     }
     this.master = this.bus.sfx;
+    this.voiceIn = this.ctx.createDynamicsCompressor();
+    this.voiceIn.threshold.value = -18; this.voiceIn.ratio.value = 3; this.voiceIn.attack.value = 0.005; this.voiceIn.release.value = 0.15;
+    const vTrim = this.ctx.createGain(); vTrim.gain.value = 0.16;
+    this.voiceIn.connect(vTrim).connect(this.bus.voice);
     const len = this.ctx.sampleRate * 2;
     this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = this.noise.getChannelData(0);
@@ -98,23 +103,11 @@ export class Audio {
   good() { this.tone({ freq: 520, dur: 0.1, gain: 0.08 }); setTimeout(() => this.tone({ freq: 780, dur: 0.14, gain: 0.08 }), 90); }
   bubble() { this.tone({ freq: 300 + Math.random() * 300, dur: 0.08, gain: 0.03, to: 900 }); }
 
-  // gibberish voice: a run of short formant blips while text is shown
-  voice(text, female = true) {
-    if (!this.ensure()) return 0;
-    const c = this.ctx;
-    const syll = Math.max(2, Math.min(40, Math.round(text.length / 3.2)));
-    const base = female ? 210 : 120;
-    let t = c.currentTime + 0.02;
-    for (let i = 0; i < syll; i++) {
-      const o = c.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(base * (0.9 + Math.random() * 0.3), t);
-      const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 600 + Math.random() * 1400; f.Q.value = 4;
-      const g = c.createGain(); const d = 0.06 + Math.random() * 0.07;
-      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + 0.015); g.gain.exponentialRampToValueAtTime(0.001, t + d);
-      o.connect(f).connect(g).connect(this.bus.voice); o.start(t); o.stop(t + d + 0.02);
-      t += d + 0.025 + (Math.random() < 0.15 ? 0.12 : 0);
-    }
-    return t - c.currentTime;
+  // gibberish speech (see voice.js). Returns { duration, syllables } for lip-sync.
+  voice(text, female = true, opts = {}) {
+    if (!this.ensure()) return { duration: 0, syllables: [] };
+    const profile = opts.profile || makeVoiceProfile(female ? 7 : 3, female ? 'female' : 'male');
+    return speak(this.ctx, this.voiceIn || this.bus.voice, this.noise, text, { ...opts, profile });
   }
 }
 export const audio = new Audio();

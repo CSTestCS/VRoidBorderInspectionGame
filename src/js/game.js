@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { World, SPOTS, TANK_POS } from './world.js';
 import { Player } from './player.js';
 import { audio } from './audio.js';
+import { makeVoiceProfile } from './voice.js';
 import { RNG, el, clamp, damp, sleep } from './util.js';
 import { generateVisitor, buildVisitorCharacter, correctOutcome, measureDirt, paintClothing, PROBLEM_LABEL, CURRENT_YEAR } from './visitor.js';
 import { renderPortrait, renderPortraitFrom, compileGradually } from './portrait.js';
@@ -171,8 +172,21 @@ export class Game {
   say(ch, text, who) {
     if (!text) return 0;
     const female = ch?.spec ? ch.spec.sex !== 'male' : true;
-    const dur = audio.voice(text, female) || text.length * 0.05;
-    ch?.face?.talk(dur);
+    if (ch && !ch.voice && ch.spec) ch.voice = makeVoiceProfile(ch.spec.seed, ch.spec.sex, ch.spec.age);
+    // voices behind glass come through the intercom; in-room voices are panned
+    const behindGlass = ch && (this.run?.ch === ch && ['arriving', 'booth'].includes(this.run.phase) || this.interro?.run.ch === ch);
+    let pan = 0;
+    if (ch) {
+      const cam = this.engine.camera;
+      const p = ch.root.position.clone().add(new THREE.Vector3(0, 1.5, 0)).applyMatrix4(cam.matrixWorldInverse);
+      pan = Math.max(-0.8, Math.min(0.8, p.x / Math.max(0.5, Math.hypot(p.x, p.z))));
+    }
+    const emotion = ch?.face?.timed?.[ch.face.timed.length - 1]?.name || (ch?.face?.base?.sad > 0.3 ? 'sad' : ch?.face?.base?.happy > 0.3 ? 'happy' : 'neutral');
+    const v = ch
+      ? audio.voice(text, female, { profile: ch.voice, radio: behindGlass, pan: behindGlass ? 0 : pan, emotion })
+      : audio.voice(text, false, { profile: this.interrogatorVoice || (this.interrogatorVoice = makeVoiceProfile(4242, 'male', 'adult')), radio: true });
+    const dur = v.duration || text.length * 0.05;
+    ch?.face?.talk(dur, v.syllables);
     const an = ch?.animator;
     if (an && text.length > 28 && !an.walking && an.pose !== 'armsUp' && Math.random() < an.personality.gesture) an.play(Math.random() < 0.6 ? 'explain' : 'explainL');
     this.ui.subtitle(who || (ch?.spec ? 'Visitor' : ''), text, Math.max(2.5, dur + 1.2));
@@ -891,14 +905,14 @@ export class Game {
       for (let k = 0; k < qs.length; k++) {
         if (!m.el.isConnected) break;
         add('Interrogator', qs[k], 'you');
-        this.ui.subtitle('Interrogator', qs[k], 2.5);
-        await sleep(1700);
+        const qd = this.say(null, qs[k], 'Interrogator');
+        await sleep(Math.max(1700, qd * 1000 + 400));
         const a = (s.interrogation?.dangerous ? answersDanger : answersHarmless)[k];
         ch.face.flash(s.interrogation?.dangerous ? 'angry' : 'sad', 0.7, 2.5);
         ch.animator.play(s.interrogation?.dangerous ? (k === 2 ? 'lookDown' : 'shake') : (k === 0 ? 'shrug' : 'lookDown'));
         add('Subject', a);
-        this.say(ch, a, 'Subject');
-        await sleep(2000);
+        const ad = this.say(ch, a, 'Subject');
+        await sleep(Math.max(2000, ad * 1000 + 500));
       }
       I.stage = 'decide';
     } else {
