@@ -186,7 +186,7 @@ export class Player {
       const fit = Math.min(1, 0.62 / Math.max(0.01, longest));
       holder.scale.setScalar(fit);
       const small = longest < 0.25;
-      holder.position.set(0, small ? -0.17 : -0.3, small ? -0.38 : -0.55);
+      holder.position.set(0, small ? -0.14 : -0.3, small ? -0.5 : -0.55);
       holder.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.renderOrder = 10; } });
       obj.model = holder;
       this.toolGroup.add(holder);

@@ -30,7 +30,7 @@ export class UI {
   dayInfo(html) { this.dayEl.innerHTML = html || ''; }
   reticle(mode) { this.cross.classList.toggle('hose', mode === 'hose'); }
   toolbar(player) {
-    const key = TOOLS.map((t) => `${t.id}:${player.tool === t.id}:${t.id === 'hose' ? player.hasHose : 1}:${!!player.carrying}`).join('|');
+    const key = TOOLS.map((t) => `${t.id}:${player.tool === t.id}:${t.id === 'hose' ? player.hasHose : 1}:${player.carrying?.name || ""}`).join('|');
     if (key === this._tbKey) return;
     this._tbKey = key;
     this.toolbarEl.innerHTML = '';
