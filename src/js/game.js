@@ -147,6 +147,8 @@ export class Game {
     const female = ch?.spec ? ch.spec.sex !== 'male' : true;
     const dur = audio.voice(text, female) || text.length * 0.05;
     ch?.face?.talk(dur);
+    const an = ch?.animator;
+    if (an && text.length > 28 && !an.walking && an.pose !== 'armsUp' && Math.random() < an.personality.gesture) an.play(Math.random() < 0.6 ? 'explain' : 'explainL');
     this.ui.subtitle(who || (ch?.spec ? 'Visitor' : ''), text, Math.max(2.5, dur + 1.2));
     return dur;
   }
@@ -197,11 +199,14 @@ export class Game {
       this.say(ch, GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
       await sleep(1400);
       ch.animator.setPose('handOver');
+      ch.animator.reach = { right: new THREE.Vector3(0.04, 1.06, -0.18) };
       await sleep(900);
       this.say(ch, HANDOVER[Math.floor(Math.random() * HANDOVER.length)]);
       this.placeCard(run);
       await sleep(600);
       ch.animator.setPose('idle');
+      ch.animator.reach = null;
+      ch.animator.mood = 'waiting';
       run.phase = 'booth';
       this.setObjective('Examine the <b>ID card</b> on the tray, question the visitor on the <b>intercom</b>, then <b>stamp</b> the card and press <b>DECON</b>.');
       this.emit('cardOnDesk');
@@ -339,8 +344,11 @@ export class Game {
           if (id === 'contraband' && liarWeapon) nervousTell();
           if (id === 'bitten' && infected) nervousTell();
           if (id === 'name' && s.problems.includes('invalidName')) nervousTell();
-          add(s.identity.first ? 'Visitor' : 'Visitor', ans);
+          add('Visitor', ans);
           this.say(run.ch, ans);
+          if (id === 'contraband' || id === 'bitten') run.ch.animator.play('shake');
+          else if (id === 'purpose') run.ch.animator.play(Math.random() < 0.5 ? 'shrug' : 'explain');
+          else if (Math.random() < 0.5) run.ch.animator.play('nod');
         },
       }, q));
     }
@@ -443,7 +451,7 @@ export class Game {
         o.handled = true;
         o.decision = choice;
         run.found.push({ ...o, itemId });
-        if (choice === 'confiscate') { audio.metalDrop(); this.react('confiscate', 'angry', 0.5); this.ui.toast('Item placed in the contraband bin.'); }
+        if (choice === 'confiscate') { audio.metalDrop(); this.react('confiscate', 'angry', 0.5); run.ch.animator.play('reachOut'); this.ui.toast('Item placed in the contraband bin.'); }
         else { this.react('returnItem', 'happy', 0.4); this.ui.toast('Item kept with the visitor\'s belongings.'); }
         this.emit('objectDecided', { type: o.type, choice });
         m.close();
@@ -476,6 +484,7 @@ export class Game {
     const left = this.removableItems().filter((o) => !o.removed);
     if (!left.length) {
       run.ch.animator.setPose('shy');
+      run.ch.animator.mood = 'cold';
       run.ch.face.setBase({ sad: 0.25 });
       this.setObjective('All clothing removed. Finish sorting, then take the <b>hose</b> from the wall reel and wash the visitor thoroughly. <kbd>R</kbd> raise arms, <kbd>T</kbd> turn around.');
     }
@@ -498,6 +507,7 @@ export class Game {
       this.world.incLight.intensity = 6;
       setTimeout(() => { this.world.incGlow.material.emissiveIntensity = 0.6; this.world.incLight.intensity = 0.6; }, 1600);
       this.react('burn', 'sad', 0.8);
+      run.ch.animator.play('shake');
       this.ui.toast(`${c.name} burned.`, 'warn');
     }
     this.emit('deposited', { itemId: c.itemId, dest });
@@ -540,11 +550,12 @@ export class Game {
     if (res.hitSkin || res.hitHair) {
       run.hoseTime += dt;
       this.world.puddle.material.opacity = Math.min(0.75, this.world.puddle.material.opacity + dt * 0.03);
-      if (!run.hosed) { run.hosed = true; this.react('hoseStart', 'surprised', 1); run.ch.animator.shiver = 1; }
+      if (!run.hosed) { run.hosed = true; this.react('hoseStart', 'surprised', 1); run.ch.animator.shiver = 1; run.ch.animator.mood = 'wet'; if (!run.armsUp) run.ch.animator.play('recoil'); }
     }
     if (res.hitFace) {
       run.faceHits += dt;
       run.ch.face.eyesClosed = 1;
+      if (!run.lastCover || performance.now() - run.lastCover > 2600) { run.lastCover = performance.now(); if (!run.armsUp) run.ch.animator.play('coverFace'); }
       run.lastFaceHit = performance.now();
       if (run.faceHits > 0.6 && !run.complainedFace) { run.complainedFace = true; this.react('hoseFace', 'angry', 0.6); }
     }
@@ -579,6 +590,7 @@ export class Game {
     paintClothing(run.ch, run.spec, { washed: true });
     for (const id of run.washer) run.ch.setItemVisible(id, true);
     run.ch.animator.setPose('idle');
+    run.ch.animator.mood = run.ch.hairWet > 0.3 ? 'wet' : 'calm';
     run.armsUp = false;
     this.world.washerLamp.material.emissiveIntensity = 0;
     audio.washer();
@@ -621,6 +633,7 @@ export class Game {
     ch.turnTarget = null;
     if (choice === 'admit' || choice === 'deny') {
       this.react(choice, choice === 'admit' ? 'happy' : 'sad', 1);
+      ch.animator.play(choice === 'admit' ? 'nod' : 'shake');
       ch.face.setBase(choice === 'admit' ? { happy: 0.5 } : { sad: 0.6, angry: 0.2 });
       run.phase = 'leaving';
       const door = choice === 'admit' ? this.world.doors.haven : this.world.doors.waste;
@@ -654,6 +667,7 @@ export class Game {
         ch.animator.setPose('sit');
         ch.animator.lookTarget = null;
         ch.lookAt(null);
+        ch.animator.handTargets = this.tableHands();
         ch.face.setBase({ sad: 0.4 });
         run.proxies?.dispose();
         this.recordResults(run.spec, this.evaluate(run, 'interro'));
@@ -777,6 +791,7 @@ export class Game {
         await sleep(1700);
         const a = (s.interrogation?.dangerous ? answersDanger : answersHarmless)[k];
         ch.face.flash(s.interrogation?.dangerous ? 'angry' : 'sad', 0.7, 2.5);
+        ch.animator.play(s.interrogation?.dangerous ? (k === 2 ? 'lookDown' : 'shake') : (k === 0 ? 'shrug' : 'lookDown'));
         add('Subject', a);
         this.say(ch, a, 'Subject');
         await sleep(2000);
@@ -808,6 +823,11 @@ export class Game {
     this.ui.toast(choice === 'admit' ? 'Visitor admitted after questioning.' : 'Visitor escorted back to the wasteland.', choice === 'admit' ? 'good' : 'warn');
     this.emit('interroResolved', choice);
     this.setObjective(this.queue.length ? 'Return to the booth and call the next visitor.' : 'All visitors processed. Press <b>NEXT</b> in the booth to end your shift.');
+  }
+
+  tableHands() {
+    const p = SPOTS.interroSeat;
+    return { left: new THREE.Vector3(p.x + 0.62, 0.81, p.z - 0.14), right: new THREE.Vector3(p.x + 0.6, 0.81, p.z + 0.16) };
   }
 
   // ---------------------------------------------------------------- tanks
@@ -863,6 +883,7 @@ export class Game {
           ch.setFloating(false); ch.face.eyesClosed = 0;
           for (const id of run.washer || []) ch.setItemVisible(id, true);
           ch.root.position.copy(SPOTS.interroSeat); ch.root.rotation.y = Math.PI / 2; ch.animator.setPose('sit'); ch.animator.lookTarget = null; ch.face.setBase({ sad: 0.4 });
+          ch.animator.handTargets = this.tableHands(); ch.lookAt(null);
           run.ch = ch;
           this.interro = { run, stage: 'waiting' };
         } else ch.dispose();
@@ -1095,7 +1116,7 @@ export class Game {
       }
       ch._pupil = damp(ch._pupil ?? 1, 1 - 0.5 * lit, lit > (1 - (ch._pupil ?? 1)) * 2 ? 9 : 1.2, dt);
       ch.setPupil(ch._pupil);
-      if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); } }
+      if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); ch.animator.play('flinch'); } }
       else if (lit === 0) run._flinched = false;
     }
     // hover + prompt
@@ -1105,11 +1126,13 @@ export class Game {
       const prev = this.hover;
       this.hover = this.findHover();
 
-      if (prev?.id !== this.hover?.id || prev?.label !== this.hover?.label) this.ui.prompt(this.hover ? (this.hover.action ? `<kbd>E</kbd> ${this.hover.label}` : this.hover.label) : '');
+      const docked = !!this.hover && (this.hover.id === 'visitor' || String(this.hover.id).startsWith('item:'));
+      if (prev?.id !== this.hover?.id || prev?.label !== this.hover?.label) this.ui.prompt(this.hover ? (this.hover.action ? `<kbd>E</kbd> ${this.hover.label}` : this.hover.label) : '', docked);
     }
     if (this.player.mouse.left && this.player.tool === 'hand' && this.player.enabled && !this._clickLatch) { this._clickLatch = true; this.interact(); }
     if (!this.player.mouse.left) this._clickLatch = false;
     this.ui.toolbar(this.player);
+    this.ui.reticle(this.player.tool === 'hose' && !this.player.carrying ? 'hose' : null);
     // tank screens pulse
     this.world.tanks.forEach((tk, i) => { tk.screen.material.emissiveIntensity = this.tanks[i] ? (this.tanks[i].checkedToday ? 0.6 : 0.3 + 0.3 * Math.sin(performance.now() * 0.006)) : 0.05; tk.light.intensity = this.tanks[i] ? 2.2 : 0.6; });
     // tutorial movement event

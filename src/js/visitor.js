@@ -285,5 +285,7 @@ export async function buildVisitorCharacter(spec, modelsById, { lowRes = false, 
   paintBody(ch, spec);
   paintClothing(ch, spec);
   ch.spec = spec;
+  ch.animator.setPersonality(new RNG((spec.seed ^ 0xa11) >>> 0), spec.nervous || 0);
+  ch.animator.vrmScaleHint = spec.scale || 1;
   return ch;
 }

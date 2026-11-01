@@ -148,7 +148,9 @@ export class Character {
     this.springBase = [];
     if (this.vrm.springBoneManager) {
       for (const j of this.vrm.springBoneManager.joints) {
-        this.springBase.push({ j, s: { ...j.settings, gravityDir: j.settings.gravityDir.clone() } });
+        const name = (j.bone?.name || '') + ' ' + (j.bone?.parent?.name || '');
+        const hair = /hair|ahoge|bang|fringe|pony|braid|twin|tail_?hair|kami/i.test(name) && !/bust|breast|chest|skirt/i.test(name);
+        this.springBase.push({ j, hair, s: { ...j.settings, gravityDir: j.settings.gravityDir.clone() } });
       }
     }
     this.vrm.update(0);
@@ -292,7 +294,9 @@ export class Character {
   setFloating(f) { this.floating = f; this.animator.floatMode = f; this._applySprings(); }
   _applySprings() {
     const w = this.hairWet;
-    for (const { j, s } of this.springBase) {
+    for (const { j, s, hair } of this.springBase) {
+      // only hair soaks up water / floats; breasts, skirts etc. keep their physics
+      if (!hair) { j.settings.gravityDir.copy(s.gravityDir); j.settings.gravityPower = s.gravityPower; j.settings.dragForce = s.dragForce; j.settings.stiffness = s.stiffness; continue; }
       if (this.floating) {
         j.settings.gravityDir.set(0, 1, 0);
         j.settings.gravityPower = 0.06;
@@ -311,6 +315,7 @@ export class Character {
   boneWorld(name, target = new THREE.Vector3()) { return this.bone(name).getWorldPosition(target); }
 
   update(dt) {
+    this.animator.talking = this.face.time < this.face.talkUntil;
     this.animator.update(dt);
     this.face.update(dt);
     this.vrm.update(dt);

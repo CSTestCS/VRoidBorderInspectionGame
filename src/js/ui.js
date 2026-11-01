@@ -19,7 +19,8 @@ export class UI {
     this.subTimer = null;
   }
   showHUD(v) { this.hud.classList.toggle('hidden', !v); }
-  prompt(text) {
+  prompt(text, docked = false) {
+    this.promptEl.classList.toggle('docked', !!docked);
     if (this._lastPrompt === text) return;
     this._lastPrompt = text;
     this.promptEl.innerHTML = text || '';
@@ -27,6 +28,7 @@ export class UI {
   }
   objective(html) { this.objectiveEl.innerHTML = html || ''; }
   dayInfo(html) { this.dayEl.innerHTML = html || ''; }
+  reticle(mode) { this.cross.classList.toggle('hose', mode === 'hose'); }
   toolbar(player) {
     const key = TOOLS.map((t) => `${t.id}:${player.tool === t.id}:${t.id === 'hose' ? player.hasHose : 1}:${!!player.carrying}`).join('|');
     if (key === this._tbKey) return;

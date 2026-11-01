@@ -114,3 +114,11 @@ kbd { background: #2a3237; border: 1px solid #44525b; border-bottom-width: 2px; 
 #modal-root { z-index: 20; }
 #loading { z-index: 30; }
 .screen { z-index: 10; }
+
+/* prompt docked above the toolbar while looking at a visitor */
+#prompt.docked { top: auto; bottom: 92px; font-size: 16px; padding: 6px 14px; background: rgba(0,0,0,.65); border: 1px solid var(--line); }
+/* bigger reticle for the hose */
+#crosshair.hose { width: 34px; height: 34px; margin: -17px; background: none; border: 2px solid rgba(160, 210, 255, .9); box-shadow: 0 0 0 1px rgba(0,0,0,.6), inset 0 0 0 1px rgba(0,0,0,.4); }
+#crosshair.hose::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(160, 210, 255, .95); }
+#crosshair { border-radius: 50%; }
+#subtitle { bottom: 140px; }
