@@ -74,6 +74,28 @@ export class Game {
     document.addEventListener('pointerlockchange', this._plc);
     this.unhook = this.engine.add((dt) => this.update(dt));
     this.active = true;
+    this.precompileWorld();
+  }
+
+  // Compile the facility, held tools and the ID card at the loading screen so
+  // nothing in the environment compiles mid-game.
+  precompileWorld() {
+    const r = this.engine.renderer;
+    const blank = document.createElement('canvas'); blank.width = blank.height = 4;
+    const card = makeCardMesh(blank, blank, blank, patchMaterial);
+    this.scene.add(card);
+    const tools = Object.values(this.player.T);
+    const vis = tools.map((t) => t.visible);
+    tools.forEach((t) => (t.visible = true));
+    const prev = r.getRenderTarget();
+    try {
+      r.setRenderTarget(this.engine.composer.renderTarget1);
+      r.compile(this.scene, this.engine.camera);
+    } catch (e) { console.warn(e); }
+    r.setRenderTarget(prev);
+    tools.forEach((t, i) => (t.visible = vis[i]));
+    this.scene.remove(card);
+    card.userData.textures.forEach((t) => t.dispose());
   }
 
   destroy() {
@@ -262,10 +284,22 @@ export class Game {
     tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
     tg.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
     tg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(6), 2));
-    for (const it of ch.items.values()) for (const m of it.meshes) twins.add(new THREE.Mesh(tg, m.material));
+    for (const it of ch.items.values()) for (const m of it.meshes) { const tw = new THREE.Mesh(tg, m.material); tw.frustumCulled = false; twins.add(tw); }
     ch.root.add(twins);
     const prevVis = ch.root.visible;
-    await compileGradually(r, ch.root, this.engine.camera, this.scene);
+    await compileGradually(r, ch.root, this.engine.camera, this.scene, this.engine.composer.renderTarget1);
+    // one tiny off-screen draw finishes linking every program and uploads buffers
+    const rt = this.warmTarget || (this.warmTarget = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType }));
+    const hidden = [];
+    this.scene.traverse((o) => { if (o !== this.scene && o.parent === this.scene && o.visible && o !== this.engine.camera && !o.isLight) { hidden.push(o); o.visible = false; } });
+    const oldParent = ch.root.parent;
+    this.scene.add(ch.root);
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(rt);
+    r.render(this.scene, this.engine.camera);
+    r.setRenderTarget(prev);
+    if (oldParent && oldParent !== this.scene) oldParent.add(ch.root); else if (!oldParent) this.scene.remove(ch.root);
+    for (const o of hidden) o.visible = true;
     ch.root.remove(twins);
     tg.dispose();
     ch.root.visible = prevVis;

@@ -9,7 +9,9 @@ const W = 300, H = 380;
 
 // Compile shader variants one mesh at a time, yielding between them, so even
 // GPUs/drivers without parallel shader compilation never stall a frame for long.
-export async function compileGradually(renderer, root, camera, scene) {
+// `target`: the render target the real draws go to (e.g. the post-processing
+// buffer), because tone mapping / colour space change the shader variant.
+export async function compileGradually(renderer, root, camera, scene, target = null) {
   const meshes = [];
   root.traverse((o) => { if (o.isMesh && o.visible !== false) meshes.push(o); });
   const seen = new Set();
@@ -18,7 +20,12 @@ export async function compileGradually(renderer, root, camera, scene) {
     if (seen.has(key)) continue;
     seen.add(key);
     const parent = m.parent;
-    try { await renderer.compileAsync(m, camera, scene); } catch (e) { console.warn('compile', e); }
+    const prev = renderer.getRenderTarget();
+    renderer.setRenderTarget(target);
+    let p;
+    try { p = renderer.compileAsync(m, camera, scene); } catch (e) { console.warn('compile', e); }
+    renderer.setRenderTarget(prev);
+    try { await p; } catch (e) { console.warn('compile', e); }
     if (parent && m.parent !== parent) parent.add(m);
     await new Promise((r) => setTimeout(r, 0));
   }
