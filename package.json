@@ -1,0 +1,23 @@
+{
+  "name": "haven-checkpoint",
+  "productName": "Haven Checkpoint",
+  "version": "1.0.0",
+  "description": "First-person post-apocalyptic customs/decontamination inspection game using VRoid (.vrm) characters.",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "serve": "node tools/serve.js",
+    "package:win": "node tools/package-win.js"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
+    "three": "^0.180.0",
+    "three-mesh-bvh": "^0.9.1"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "electron": "^38.0.0"
+  }
+}

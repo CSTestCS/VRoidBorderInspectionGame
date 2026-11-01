@@ -1,0 +1,812 @@
+{
+ "bottoms": [
+  {
+   "file": "BandThongLegoBlack.png",
+   "name": "BandThongLegoBlack",
+   "bbox": [
+    490,
+    906,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Band Thong"
+  },
+  {
+   "file": "BikiniBriefFloralPastelPink.png",
+   "name": "BikiniBriefFloralPastelPink",
+   "bbox": [
+    486,
+    879,
+    1562,
+    1296
+   ],
+   "baseLum": 234,
+   "recolor": false,
+   "label": "Bikini Brief (Floral)"
+  },
+  {
+   "file": "BikiniBriefLegoBlack.png",
+   "name": "BikiniBriefLegoBlack",
+   "bbox": [
+    486,
+    879,
+    1562,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Bikini Brief"
+  },
+  {
+   "file": "BikiniHipstersLegoBlack.png",
+   "name": "BikiniHipstersLegoBlack",
+   "bbox": [
+    490,
+    868,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Bikini Hipsters"
+  },
+  {
+   "file": "BoyshortLegoBlack.png",
+   "name": "BoyshortLegoBlack",
+   "bbox": [
+    490,
+    879,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Boyshort"
+  },
+  {
+   "file": "BrazilianBriefsLegoBlack.png",
+   "name": "BrazilianBriefsLegoBlack",
+   "bbox": [
+    490,
+    868,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Brazilian Briefs"
+  },
+  {
+   "file": "BriefsLegoBlack.png",
+   "name": "BriefsLegoBlack",
+   "bbox": [
+    487,
+    913,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Briefs"
+  },
+  {
+   "file": "CheekyHighRiseLegoBlack.png",
+   "name": "CheekyHighRiseLegoBlack",
+   "bbox": [
+    490,
+    879,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Cheeky High Rise"
+  },
+  {
+   "file": "CheekyHipstersLegoBlack.png",
+   "name": "CheekyHipstersLegoBlack",
+   "bbox": [
+    487,
+    932,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Cheeky Hipsters"
+  },
+  {
+   "file": "CuteCheekyBriefsLegoBlack.png",
+   "name": "CuteCheekyBriefsLegoBlack",
+   "bbox": [
+    487,
+    913,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Cute Cheeky Briefs"
+  },
+  {
+   "file": "EorzeanBriefsLegoBlack.png",
+   "name": "EorzeanBriefsLegoBlack",
+   "bbox": [
+    487,
+    922,
+    1561,
+    1299
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Eorzean Briefs"
+  },
+  {
+   "file": "EriHighBriefsLegoBlack.png",
+   "name": "EriHighBriefsLegoBlack",
+   "bbox": [
+    490,
+    819,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Eri High Briefs"
+  },
+  {
+   "file": "FrenchCutLegoBlack.png",
+   "name": "FrenchCutLegoBlack",
+   "bbox": [
+    490,
+    800,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "French Cut"
+  },
+  {
+   "file": "FrenchCutThongLegoBlack.png",
+   "name": "FrenchCutThongLegoBlack",
+   "bbox": [
+    490,
+    750,
+    1988,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "French Cut Thong"
+  },
+  {
+   "file": "FullThongLegoBlack.png",
+   "name": "FullThongLegoBlack",
+   "bbox": [
+    490,
+    879,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Full Thong"
+  },
+  {
+   "file": "HalfThongBriefLegoBlack.png",
+   "name": "HalfThongBriefLegoBlack",
+   "bbox": [
+    490,
+    908,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Half Thong Brief"
+  },
+  {
+   "file": "HalfThongLegoBlack.png",
+   "name": "HalfThongLegoBlack",
+   "bbox": [
+    490,
+    879,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Half Thong"
+  },
+  {
+   "file": "HalfTycoonsLegoBlack.png",
+   "name": "HalfTycoonsLegoBlack",
+   "bbox": [
+    490,
+    819,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Half Tycoons"
+  },
+  {
+   "file": "HighCutThongLegoBlack.png",
+   "name": "HighCutThongLegoBlack",
+   "bbox": [
+    488,
+    830,
+    1560,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "High Cut Thong"
+  },
+  {
+   "file": "HighRiseLegoBlack.png",
+   "name": "HighRiseLegoBlack",
+   "bbox": [
+    490,
+    820,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "High Rise"
+  },
+  {
+   "file": "HighRiseTrimLegoBlack.png",
+   "name": "HighRiseTrimLegoBlack",
+   "bbox": [
+    490,
+    820,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "High Rise Trim"
+  },
+  {
+   "file": "HipstersLegoBlack.png",
+   "name": "HipstersLegoBlack",
+   "bbox": [
+    487,
+    932,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Hipsters"
+  },
+  {
+   "file": "LowRiseCheekyLegoBlack.png",
+   "name": "LowRiseCheekyLegoBlack",
+   "bbox": [
+    487,
+    926,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Low Rise Cheeky"
+  },
+  {
+   "file": "LowRiseCheekyTrimmedLegoBlack.png",
+   "name": "LowRiseCheekyTrimmedLegoBlack",
+   "bbox": [
+    488,
+    926,
+    1560,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Low Rise Cheeky Trimmed"
+  },
+  {
+   "file": "LowRiseTangaLegoBlack.png",
+   "name": "LowRiseTangaLegoBlack",
+   "bbox": [
+    487,
+    945,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Low Rise Tanga"
+  },
+  {
+   "file": "MidRiseThongLegoBlack.png",
+   "name": "MidRiseThongLegoBlack",
+   "bbox": [
+    486,
+    845,
+    1562,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Mid Rise Thong"
+  },
+  {
+   "file": "NierThongLegoBlack.png",
+   "name": "NierThongLegoBlack",
+   "bbox": [
+    486,
+    777,
+    1562,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Nier Thong"
+  },
+  {
+   "file": "ShapingBriefsLegoBlack.png",
+   "name": "ShapingBriefsLegoBlack",
+   "bbox": [
+    60,
+    750,
+    1988,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Shaping Briefs"
+  },
+  {
+   "file": "SimpleBikiniBriefLegoBlack.png",
+   "name": "SimpleBikiniBriefLegoBlack",
+   "bbox": [
+    486,
+    879,
+    1562,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Simple Bikini Brief"
+  },
+  {
+   "file": "StringBikiniLegoBlack.png",
+   "name": "StringBikiniLegoBlack",
+   "bbox": [
+    490,
+    862,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "String Bikini"
+  },
+  {
+   "file": "StringTangaLegoBlack.png",
+   "name": "StringTangaLegoBlack",
+   "bbox": [
+    487,
+    942,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "String Tanga"
+  },
+  {
+   "file": "StringThongLegoBlack.png",
+   "name": "StringThongLegoBlack",
+   "bbox": [
+    484,
+    860,
+    1564,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "String Thong"
+  },
+  {
+   "file": "TangaLegoBlack.png",
+   "name": "TangaLegoBlack",
+   "bbox": [
+    487,
+    914,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Tanga"
+  },
+  {
+   "file": "ThongBriefLegoBlack.png",
+   "name": "ThongBriefLegoBlack",
+   "bbox": [
+    490,
+    908,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Thong Brief"
+  },
+  {
+   "file": "ThongLegoBlack.png",
+   "name": "ThongLegoBlack",
+   "bbox": [
+    490,
+    852,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Thong"
+  },
+  {
+   "file": "TrimmedBriefsLegoBlack.png",
+   "name": "TrimmedBriefsLegoBlack",
+   "bbox": [
+    487,
+    913,
+    1561,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Trimmed Briefs"
+  },
+  {
+   "file": "TrimmedFullBriefLegoBlack.png",
+   "name": "TrimmedFullBriefLegoBlack",
+   "bbox": [
+    490,
+    879,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Trimmed Full Brief"
+  },
+  {
+   "file": "TycoonsLegoBlack.png",
+   "name": "TycoonsLegoBlack",
+   "bbox": [
+    490,
+    820,
+    1558,
+    1296
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Tycoons"
+  }
+ ],
+ "bras": [
+  {
+   "file": "AdhesiveBraLegoBlack.png",
+   "name": "AdhesiveBraLegoBlack",
+   "bbox": [
+    809,
+    468,
+    1239,
+    605
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Adhesive Bra"
+  },
+  {
+   "file": "BalconetteBraLegoBlack.png",
+   "name": "BalconetteBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Balconette Bra"
+  },
+  {
+   "file": "BikiniBraBlack.png",
+   "name": "BikiniBraBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    613
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Bikini Bra"
+  },
+  {
+   "file": "BraFloralNude.png",
+   "name": "BraFloralNude",
+   "bbox": [
+    490,
+    204,
+    1557,
+    611
+   ],
+   "baseLum": 231,
+   "recolor": false,
+   "label": "Bra (Floral)"
+  },
+  {
+   "file": "BraFloralPastelPink.png",
+   "name": "BraFloralPastelPink",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 234,
+   "recolor": false,
+   "label": "Bra (Floral)"
+  },
+  {
+   "file": "BraLegoBlack.png",
+   "name": "BraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Bra"
+  },
+  {
+   "file": "EorzeanBraLegoBlack.png",
+   "name": "EorzeanBraLegoBlack",
+   "bbox": [
+    490,
+    467,
+    1558,
+    624
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Eorzean Bra"
+  },
+  {
+   "file": "FullCupBraLegoBlack.png",
+   "name": "FullCupBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Full Cup Bra"
+  },
+  {
+   "file": "HalfCupBraLegoBlack.png",
+   "name": "HalfCupBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Half Cup Bra"
+  },
+  {
+   "file": "HalterTopBraLegoBlack.png",
+   "name": "HalterTopBraLegoBlack",
+   "bbox": [
+    480,
+    174,
+    1568,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Halter Top Bra"
+  },
+  {
+   "file": "LaceBraLegoBlack.png",
+   "name": "LaceBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Lace Bra"
+  },
+  {
+   "file": "PlungeBraLegoBlack.png",
+   "name": "PlungeBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    618
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Plunge Bra"
+  },
+  {
+   "file": "RacerbackBraLegoBlack.png",
+   "name": "RacerbackBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Racerback Bra"
+  },
+  {
+   "file": "SportsBraLegoBlack.png",
+   "name": "SportsBraLegoBlack",
+   "bbox": [
+    94,
+    20,
+    1954,
+    630
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Sports Bra"
+  },
+  {
+   "file": "SportsBraStarsLegoBlack.png",
+   "name": "SportsBraStarsLegoBlack",
+   "bbox": [
+    94,
+    20,
+    1954,
+    630
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Sports Bra Stars"
+  },
+  {
+   "file": "SportsBraTrimmedLegoBlack.png",
+   "name": "SportsBraTrimmedLegoBlack",
+   "bbox": [
+    94,
+    20,
+    1954,
+    630
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Sports Bra Trimmed"
+  },
+  {
+   "file": "StraplessBraFloralPastelPink.png",
+   "name": "StraplessBraFloralPastelPink",
+   "bbox": [
+    490,
+    468,
+    1558,
+    614
+   ],
+   "baseLum": 231,
+   "recolor": false,
+   "label": "Strapless Bra (Floral)"
+  },
+  {
+   "file": "StraplessBraFloralPink.png",
+   "name": "StraplessBraFloralPink",
+   "bbox": [
+    490,
+    468,
+    1558,
+    614
+   ],
+   "baseLum": 220,
+   "recolor": false,
+   "label": "Strapless Bra (Floral)"
+  },
+  {
+   "file": "StraplessBraLegoBlack.png",
+   "name": "StraplessBraLegoBlack",
+   "bbox": [
+    490,
+    468,
+    1558,
+    614
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Strapless Bra"
+  },
+  {
+   "file": "TShirtBraLegoBlack.png",
+   "name": "TShirtBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    634
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "T Shirt Bra"
+  },
+  {
+   "file": "TriangleBraLegoBlack.png",
+   "name": "TriangleBraLegoBlack",
+   "bbox": [
+    490,
+    207,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Triangle Bra"
+  },
+  {
+   "file": "WirelessBraLegoBlack.png",
+   "name": "WirelessBraLegoBlack",
+   "bbox": [
+    490,
+    204,
+    1558,
+    611
+   ],
+   "baseLum": 38,
+   "recolor": true,
+   "label": "Wireless Bra"
+  }
+ ],
+ "prints": [
+  {
+   "file": "Floral.png",
+   "name": "Floral"
+  },
+  {
+   "file": "Lace.png",
+   "name": "Lace"
+  },
+  {
+   "file": "RegalFloral.png",
+   "name": "RegalFloral"
+  },
+  {
+   "file": "Signature.png",
+   "name": "Signature"
+  },
+  {
+   "file": "Stripes.png",
+   "name": "Stripes"
+  },
+  {
+   "file": "Swirls.png",
+   "name": "Swirls"
+  }
+ ]
+}
