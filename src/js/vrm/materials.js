@@ -181,7 +181,7 @@ export function convertMaterial(src, role) {
       m.side = THREE.FrontSide;
       break;
     case 'hair':
-      m = new THREE.MeshPhysicalMaterial({ ...base, normalMap: p.normalMap, roughness: 0.48, metalness: 0, sheen: 0.4, sheenRoughness: 0.35, sheenColor: new THREE.Color(1, 1, 1), anisotropy: 0.6 });
+      m = new THREE.MeshPhysicalMaterial({ ...base, normalMap: p.normalMap, roughness: 0.55, metalness: 0, sheen: 0.12, sheenRoughness: 0.5, sheenColor: new THREE.Color(1, 1, 1), anisotropy: 0.25 });
       m.side = THREE.DoubleSide;
       break;
     case 'eyeIris':

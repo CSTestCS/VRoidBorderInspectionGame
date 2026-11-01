@@ -87,7 +87,7 @@ export class World {
       wood: makeMaterial('wood', [1, 1]),
       ceiling: makeMaterial('panel', [3, 3], { color: 0x6a6e72 }),
       hazard: new THREE.MeshStandardMaterial({ map: hazardTexture(), roughness: 0.7 }),
-      glass: new THREE.MeshPhysicalMaterial({ color: 0xbfd8d8, metalness: 0, roughness: 0.04, transmission: 0.92, thickness: 0.02, transparent: true, opacity: 0.35, envMapIntensity: 1.2, depthWrite: false }),
+      glass: new THREE.MeshPhysicalMaterial({ color: 0xcfe2e2, metalness: 0, roughness: 0.03, transparent: true, opacity: 0.08, envMapIntensity: 0.6, depthWrite: false }),
       emissive: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xf4f6ff, emissiveIntensity: 2.2 }),
       black: new THREE.MeshStandardMaterial({ color: 0x0b0c0d, roughness: 0.6 }),
     };
@@ -245,7 +245,7 @@ export class World {
     // dusty light from outside
     const outside = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), new THREE.MeshBasicMaterial({ color: 0xe0a060 }));
     outside.position.set(0, 1.4, -6.6); this.group.add(outside);
-    this.spot(0, 2.9, 0.6, 0, 1.0, -0.9, 7, 0.55, 0xfff1dc, true, 8);
+    this.spot(0, 2.75, 0.2, 0, 1.2, -0.9, 4, 0.6, 0xfff1dc, true, 8);
     this.spot(0, 3.05, -2.2, 0, 0.5, -0.8, 3, 0.7, 0xffe0c0, false, 6);
     this.spot(0, 2.4, -6.3, 0, 0, -2, 6, 0.6, 0xffb070, false, 9);
     this.ceilingLight(0, 3.2, -4, 1.2, 0.3, 3, 0xfff0d8);
