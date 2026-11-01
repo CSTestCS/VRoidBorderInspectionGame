@@ -295,9 +295,16 @@ export class Character {
   _applySprings() {
     const w = this.hairWet;
     for (const { j, s, hair } of this.springBase) {
-      // only hair soaks up water / floats; breasts, skirts etc. keep their physics
-      if (!hair) { j.settings.gravityDir.copy(s.gravityDir); j.settings.gravityPower = s.gravityPower; j.settings.dragForce = s.dragForce; j.settings.stiffness = s.stiffness; continue; }
+      // in the tanks every physics bone floats; out of them only hair soaks up water
       if (this.floating) {
+        j.settings.gravityDir.set(0, 1, 0);
+        j.settings.gravityPower = hair ? 0.06 : 0.03;
+        j.settings.dragForce = Math.min(0.92, s.dragForce + (hair ? 0.45 : 0.55));
+        j.settings.stiffness = s.stiffness * (hair ? 0.35 : 0.5);
+        continue;
+      }
+      if (!hair) { j.settings.gravityDir.copy(s.gravityDir); j.settings.gravityPower = s.gravityPower; j.settings.dragForce = s.dragForce; j.settings.stiffness = s.stiffness; continue; }
+      if (false) {
         j.settings.gravityDir.set(0, 1, 0);
         j.settings.gravityPower = 0.06;
         j.settings.dragForce = Math.min(0.9, s.dragForce + 0.45);
@@ -309,6 +316,49 @@ export class Character {
         j.settings.stiffness = s.stiffness * (1 - 0.65 * w);
       }
     }
+  }
+
+  // Static snapshot of an item as currently posed, centred, in model units.
+  // Shares the item's materials so colours, stains and fabric carry over.
+  snapshotItem(id) {
+    const it = this.items.get(id);
+    if (!it) return null;
+    this.root.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(this.vrm.scene.matrixWorld).invert();
+    const group = new THREE.Group();
+    const v = new THREE.Vector3();
+    const box = new THREE.Box3();
+    const meshes = [];
+    for (const m of it.meshes) {
+      const src = m.geometry;
+      const idx = src.index.array;
+      const remap = new Map();
+      const used = [];
+      for (const i of idx) if (!remap.has(i)) { remap.set(i, used.length); used.push(i); }
+      const pos = new Float32Array(used.length * 3);
+      const uvSrc = src.attributes.uv;
+      const uv = uvSrc ? new Float32Array(used.length * 2) : null;
+      used.forEach((oi, ni) => {
+        m.getVertexPosition(oi, v);
+        v.applyMatrix4(m.matrixWorld).applyMatrix4(inv);
+        pos[ni * 3] = v.x; pos[ni * 3 + 1] = v.y; pos[ni * 3 + 2] = v.z;
+        box.expandByPoint(v);
+        if (uv) { uv[ni * 2] = uvSrc.getX(oi); uv[ni * 2 + 1] = uvSrc.getY(oi); }
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      if (uv) g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      const ni = new Uint32Array(idx.length);
+      for (let k = 0; k < idx.length; k++) ni[k] = remap.get(idx[k]);
+      g.setIndex(new THREE.BufferAttribute(ni, 1));
+      g.computeVertexNormals();
+      meshes.push(new THREE.Mesh(g, m.material));
+    }
+    const c = box.getCenter(new THREE.Vector3());
+    for (const mm of meshes) { mm.geometry.translate(-c.x, -c.y, -c.z); group.add(mm); }
+    group.userData.size = box.getSize(new THREE.Vector3()).multiplyScalar(this.look.scale || 1);
+    group.userData.scale = this.look.scale || 1;
+    return group;
   }
 
   bone(name) { return this.vrm.humanoid.getRawBoneNode(name) || this.vrm.humanoid.getRawBoneNode('hips'); }

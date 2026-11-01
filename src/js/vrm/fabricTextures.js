@@ -43,6 +43,7 @@ const H = {
   rubber: (u, v) => 0.5 + (tileNoise(u * 48, v * 48, 48, 21) - 0.5) * 0.3,
   metal: (u, v) => 0.5 + (tileNoise(u * 2, v * 128, 128, 31) - 0.5) * 0.4,
   latex: () => 0.5,
+  glass: () => 0.5,
   plastic: (u, v) => 0.5 + (tileNoise(u * 32, v * 32, 32, 41) - 0.5) * 0.05,
 };
 const STRENGTH = { cotton: 1.6, knit: 2.6, denim: 3.4, silk: 0.8, sheer: 2.0, leather: 2.5, rubber: 1.2, metal: 1.0, latex: 0, plastic: 0.4 };
@@ -84,7 +85,7 @@ export function fabricTextures(fabric) {
     t.needsUpdate = true;
     return t;
   };
-  const out = { normal: mk(nd), rough: mk(rd), flat: fabric === 'latex' };
+  const out = { normal: mk(nd), rough: mk(rd), flat: fabric === 'latex' || fabric === 'glass' };
   cache.set(fabric, out);
   return out;
 }

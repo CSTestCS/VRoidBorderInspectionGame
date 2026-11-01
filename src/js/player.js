@@ -65,16 +65,29 @@ export class Player {
       if (e.button === 2) this.mouse.right = false;
     });
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('pointerlockchange', () => { this._ignoreMoves = 3; });
     document.addEventListener('mousemove', (e) => {
       if (!this.enabled || document.pointerLockElement !== dom) return;
+      // browsers sometimes report a bogus huge delta (on lock, focus changes, or
+      // OS cursor warps); drop those so the view never jumps
+      if (this._ignoreMoves > 0) { this._ignoreMoves--; return; }
+      let mx = e.movementX, my = e.movementY;
+      if (Math.abs(mx) > 250 || Math.abs(my) > 250) return;
       const s = 0.0022 * this.sensitivity * (1 - this.zoom * 0.6);
-      this.yaw -= e.movementX * s;
-      this.pitch -= e.movementY * s * (this.invertY ? -1 : 1);
+      this.yaw -= mx * s;
+      this.pitch -= my * s * (this.invertY ? -1 : 1);
       this.pitch = clamp(this.pitch, -1.45, 1.45);
     });
   }
 
-  lock() { const d = this.engine.renderer.domElement; if (document.pointerLockElement !== d) d.requestPointerLock?.()?.catch?.(() => {}); }
+  lock() {
+    const d = this.engine.renderer.domElement;
+    if (document.pointerLockElement === d || !d.requestPointerLock) return;
+    // raw input (no OS acceleration) avoids sudden speed-ups; fall back if unsupported
+    let p;
+    try { p = d.requestPointerLock({ unadjustedMovement: true }); } catch { p = null; }
+    if (p && p.catch) p.catch(() => { try { d.requestPointerLock()?.catch?.(() => {}); } catch {} });
+  }
   unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
   get locked() { return document.pointerLockElement === this.engine.renderer.domElement; }
 
@@ -149,8 +162,35 @@ export class Player {
   }
 
   carry(obj) {
+    if (this.carrying?.model) {
+      this.toolGroup.remove(this.carrying.model);
+      this.carrying.model.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+    }
     this.carrying = obj;
-    if (obj) { this.tool = 'hand'; this.T.bundle.material.color.setRGB(...(obj.color || [0.5, 0.5, 0.5]), THREE.SRGBColorSpace); }
+    if (!obj) return;
+    this.tool = 'hand';
+    this.T.bundle.material.color.setRGB(...(obj.color || [0.5, 0.5, 0.5]), THREE.SRGBColorSpace);
+    if (obj.model) {
+      const m = obj.model;
+      const size = m.userData.size;
+      const holder = new THREE.Group();
+      holder.add(m);
+      m.scale.setScalar(m.userData.scale || 1);
+      const longest = Math.max(size.x, size.y, size.z);
+      if (size.y >= Math.max(size.x, size.z) && size.y > 0.22) {
+        // tall things (boots, stockings, gloves) lie across the arms
+        m.rotation.set(0.35, 0, Math.PI / 2);
+      } else {
+        m.rotation.set(0.45, 0, 0); // front faces you, top tilted toward you
+      }
+      const fit = Math.min(1, 0.62 / Math.max(0.01, longest));
+      holder.scale.setScalar(fit);
+      const small = longest < 0.25;
+      holder.position.set(0, small ? -0.17 : -0.3, small ? -0.38 : -0.55);
+      holder.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.renderOrder = 10; } });
+      obj.model = holder;
+      this.toolGroup.add(holder);
+    }
   }
 
   nozzleWorld(target = new THREE.Vector3()) {
@@ -181,7 +221,13 @@ export class Player {
     this.vel.z = damp(this.vel.z, dir.z, 12, dt);
     const before = this.pos.clone();
     this.pos.addScaledVector(this.vel, dt);
-    this.world.collide(this.pos, 0.28, this.extraColliders());
+    this.world.collide(this.pos, 0.28);
+    // characters push gently instead of snapping the camera
+    const pushed = this.pos.clone();
+    this.world.collide(pushed, 0.28, this.extraColliders());
+    const maxPush = 1.5 * dt;
+    const dx = pushed.x - this.pos.x, dz = pushed.z - this.pos.z, dl = Math.hypot(dx, dz);
+    if (dl > 0) { const k = Math.min(1, maxPush / dl); this.pos.x += dx * k; this.pos.z += dz * k; this.world.collide(this.pos, 0.28); }
     const moved = Math.hypot(this.pos.x - before.x, this.pos.z - before.z);
     this.stepDist += moved;
     if (this.stepDist > 0.75) { this.stepDist = 0; audio.step(); }
@@ -194,7 +240,7 @@ export class Player {
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
 
     // tools
-    const tool = this.carrying ? 'bundle' : this.tool;
+    const tool = this.carrying ? (this.carrying.model ? 'model' : 'bundle') : this.tool;
     for (const [id, o] of Object.entries(this.T)) o.visible = id === tool;
     const sway = Math.sin(performance.now() * 0.002) * 0.004;
     for (const id of ['flashlight', 'uv', 'geiger', 'hose']) this.T[id].position.set(0.22, -0.2 + sway, -0.38);

@@ -300,10 +300,10 @@ export class Game {
       el('div', { class: 'row' },
         el('button', { onclick: flip }, 'Flip card (F)'),
         el('button', { onclick: toggleUV, style: { borderColor: '#9b6bff' } }, 'UV lamp (U)'),
-        el('button', { onclick: () => m.close() }, 'Close (C / Esc)')),
+        el('button', { onclick: () => m.close() }, 'Close (I / Esc)')),
       el('p', { class: 'muted' }, 'Compare the portrait, name and details with the visitor. Use the height chart behind them and look at their eyes (hold right mouse to zoom).'));
     const m = this.ui.modal(content, { side: true, title: 'Identity Card' });
-    m.keys = (e) => { if (e.code === 'KeyF') flip(); if (e.code === 'KeyU') toggleUV(); if (e.code === 'KeyC') m.close(); };
+    m.keys = (e) => { if (e.code === 'KeyF') flip(); if (e.code === 'KeyU') toggleUV(); if (e.code === 'KeyI') m.close(); };
   }
 
   openIntercom() {
@@ -386,7 +386,7 @@ export class Game {
       this.world.puddle.material.opacity = 0;
     });
     this.emit('sentToDecon');
-    this.setObjective('Go to <b>Decontamination</b>. Inspect each clothing item where it is worn, search it, remove it, and sort it into the <b>washer</b> or the <b>incinerator</b>. Press <kbd>C</kbd> to view the ID card.');
+    this.setObjective('Go to <b>Decontamination</b>. Inspect each clothing item where it is worn, search it, remove it, and sort it into the <b>washer</b> or the <b>incinerator</b>. Press <kbd>I</kbd> to view the ID card.');
   }
 
   // ------------------------------------------------------------- washroom
@@ -476,7 +476,12 @@ export class Game {
     run.ch.setItemVisible(itemId, false);
     const slot = it.meshes[0]?.userData.slot;
     const color = run.ch.slotColor(slot, it.meshes[0]?.material);
-    this.player.carry({ itemId, name: it.name, color });
+    // shoes, socks, gloves, hats and accessories keep their real shape in your hands
+    const real = ['shoes', 'socks', 'gloves', 'hat', 'accessory'].includes(it.category);
+    run.ch.setItemVisible(itemId, true);
+    const model = real ? run.ch.snapshotItem(itemId) : null;
+    run.ch.setItemVisible(itemId, false);
+    this.player.carry({ itemId, name: it.name, color, model });
     audio.burst({ dur: 0.5, freq: 700, gain: 0.2, attack: 0.05 });
     if (first) this.react('stripStart', 'sad', 0.5);
     else run.ch.face.flash('sad', 0.3, 1.5);
@@ -486,7 +491,7 @@ export class Game {
       run.ch.animator.setPose('shy');
       run.ch.animator.mood = 'cold';
       run.ch.face.setBase({ sad: 0.25 });
-      this.setObjective('All clothing removed. Finish sorting, then take the <b>hose</b> from the wall reel and wash the visitor thoroughly. <kbd>R</kbd> raise arms, <kbd>T</kbd> turn around.');
+      this.setObjective('All clothing removed. Finish sorting, then take the <b>hose</b> from the wall reel and wash the visitor thoroughly. <kbd>T</kbd> raise arms, <kbd>R</kbd> turn around.');
     }
   }
 
@@ -540,7 +545,7 @@ export class Game {
     this.ensureProxies();
     run.proxies.bake();
     this.emit('hoseTaken');
-    this.setObjective('Hold <b>left mouse</b> to spray. Wash off all dirt, blood and anything covering the skin. <kbd>R</kbd> raise arms, <kbd>T</kbd> turn around. Put the hose back on the reel when done.');
+    this.setObjective('Hold <b>left mouse</b> to spray. Wash off all dirt, blood and anything covering the skin. <kbd>T</kbd> raise arms, <kbd>R</kbd> turn around. Put the hose back on the reel when done.');
   }
 
   onSpray(origin, dir, dt) {
@@ -1023,7 +1028,7 @@ export class Game {
         if (hit.data.kind === 'item' && run.phase === 'decon') {
           const it = run.ch.items.get(hit.data.itemId);
           best = { distance: hit.distance, label: `${it.name} — inspect / search / remove`, action: () => this.itemMenu(it.id), id: 'item:' + it.id, itemId: it.id };
-        } else best = { distance: hit.distance, label: `Visitor — <kbd>R</kbd> arms up/down · <kbd>T</kbd> turn around`, action: null, id: 'visitor' };
+        } else best = { distance: hit.distance, label: `Visitor — <kbd>T</kbd> arms up/down · <kbd>R</kbd> turn around`, action: null, id: 'visitor' };
       }
     }
     return best;
@@ -1050,9 +1055,9 @@ export class Game {
     if (tk) { e.preventDefault(); tk(); return; }
     if (e.code === 'KeyE') this.interact();
     else if (e.code === 'Tab') { e.preventDefault(); this.openRulebook(); }
-    else if (e.code === 'KeyC' && !e.ctrlKey && this.run?.cardFront && this.run.phase !== 'booth') this.openCard();
-    else if (e.code === 'KeyR') this.visitorCommand('arms');
-    else if (e.code === 'KeyT') this.visitorCommand('turn');
+    else if (e.code === 'KeyI' && this.run?.cardFront && this.run.phase !== 'booth') this.openCard();
+    else if (e.code === 'KeyR') this.visitorCommand('turn');
+    else if (e.code === 'KeyT') this.visitorCommand('arms');
     else if (/^Digit[1-5]$/.test(e.code)) {
       const id = ['hand', 'flashlight', 'uv', 'geiger', 'hose'][Number(e.code.slice(5)) - 1];
       if (!this.player.setTool(id)) { if (id === 'hose') this.ui.toast('Take the hose from the reel in the washroom.'); }
@@ -1063,14 +1068,17 @@ export class Game {
   onModalChange() {
     const open = this.ui.modalOpen;
     this.player.enabled = !open && !this.paused;
-    if (open) this.player.unlock();
-    else if (!this.paused && this.active) this.player.lock();
+    clearTimeout(this._relock);
+    if (open) { this.player.unlock(); return; }
+    // closing one panel often opens another (e.g. Search -> found item): wait a moment
+    this._relock = setTimeout(() => { if (!this.ui.modalOpen && !this.paused && this.active) this.player.lock(); }, 120);
   }
 
   onPointerLockChange() {
     if (!this.active) return;
     if (!this.player.locked && !this.ui.modalOpen && !this.paused) this.app.pause();
-    if (this.player.locked) this.player.enabled = !this.ui.modalOpen && !this.paused;
+    if (this.player.locked && (this.ui.modalOpen || this.paused)) { this.player.unlock(); return; }
+    if (this.player.locked) this.player.enabled = true;
   }
 
   // ------------------------------------------------------------------ frame
@@ -1112,11 +1120,14 @@ export class Game {
         const to = head.sub(cam);
         const dist = to.length();
         const ang = to.normalize().angleTo(this.player.forward());
-        if (dist < 4.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.06) / 0.22, 0, 1) * THREE.MathUtils.clamp(1.6 - dist / 3, 0.3, 1);
+        // the light only reaches the eyes if it comes from in front of the face
+        const faceDir = new THREE.Vector3(0, 0, 1).applyQuaternion(ch.bone('head').getWorldQuaternion(new THREE.Quaternion()));
+        const frontal = THREE.MathUtils.clamp((faceDir.dot(to.clone().negate()) - 0.25) / 0.4, 0, 1);
+        if (dist < 4.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.06) / 0.22, 0, 1) * THREE.MathUtils.clamp(1.6 - dist / 3, 0.3, 1) * frontal;
       }
       ch._pupil = damp(ch._pupil ?? 1, 1 - 0.5 * lit, lit > (1 - (ch._pupil ?? 1)) * 2 ? 9 : 1.2, dt);
       ch.setPupil(ch._pupil);
-      if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); ch.animator.play('flinch'); } }
+      if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); ch.animator.play(Math.random() < 0.3 ? 'flinch' : 'flinchHead'); } }
       else if (lit === 0) run._flinched = false;
     }
     // hover + prompt

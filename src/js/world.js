@@ -229,7 +229,10 @@ export class World {
       d.L.position.x = -d.width / 4 - off;
       d.R.position.x = d.width / 4 + off;
       const c = this.colliders[d.colliderIndex];
-      if (d.open > 0.8) { c.disabled = true; } else c.disabled = false;
+      const inside = playerPos && playerPos.x > c[0] - 0.35 && playerPos.x < c[1] + 0.35 && playerPos.z > c[2] - 0.35 && playerPos.z < c[3] + 0.35;
+      if (d.open > 0.8) c.disabled = true;
+      else if (!inside) c.disabled = false;
+      if (inside && d.auto && !d.locked) d.target = 1;
     }
   }
 

@@ -37,11 +37,12 @@ export const POSES = {
     leftUpperLeg: [0, 0, 0.0], rightUpperLeg: [0, 0, 0.0],
   },
   armsUp: {
-    ...relaxedHands(0.15),
-    leftShoulder: [0, 0, 0.15], rightShoulder: [0, 0, -0.15],
-    leftUpperArm: [0, 0, 0.75], rightUpperArm: [0, 0, -0.75],
-    leftLowerArm: [0, 0, 0.35], rightLowerArm: [0, 0, -0.35],
-    leftUpperLeg: [0, 0, 0.12], rightUpperLeg: [0, 0, -0.12],
+    ...relaxedHands(0.12),
+    leftShoulder: [0, 0, 0.02], rightShoulder: [0, 0, -0.02],
+    leftUpperArm: [0, 0, -0.04], rightUpperArm: [0, 0, 0.04],
+    leftLowerArm: [0, -0.04, 0], rightLowerArm: [0, 0.04, 0],
+    leftHand: [0, 0, -0.04], rightHand: [0, 0, 0.04],
+    leftUpperLeg: [0, 0, 0.1], rightUpperLeg: [0, 0, -0.1],
   },
   armsOut: {
     ...relaxedHands(0.15),
@@ -142,6 +143,7 @@ const GESTURES = {
     ik: (t, s, d) => { const w = env(t, d, 0.08, 0.7); return { left: { bone: 'head', off: [0.1, -0.05, 0.18], w }, right: { bone: 'head', off: [-0.1, -0.05, 0.18], w } }; } },
   coverFace: { dur: 1.2, ik: (t, s, d) => { const w = env(t, d, 0.1, 0.5); return { left: { bone: 'head', off: [0.05, 0.02, 0.12], w }, right: { bone: 'head', off: [-0.05, 0.02, 0.12], w } }; }, fk: (t, s, d) => ({ head: [0.15 * env(t, d, 0.1, 0.5), 0.25 * s * env(t, d, 0.1, 0.5), 0] }) },
   flinch: { dur: 1.3, ik: (t, s, d) => ({ [s > 0 ? 'right' : 'left']: { bone: 'head', off: [-0.02 * s, 0.06, 0.16], w: env(t, d, 0.1, 0.6) } }), fk: (t, s, d) => { const k = env(t, d, 0.1, 0.6); return { head: [-0.08 * k, -0.35 * s * k, 0], neck: [0, -0.15 * s * k, 0] }; } },
+  flinchHead: { dur: 1.2, fk: (t, s, d) => { const k = env(t, d, 0.1, 0.6); return { head: [-0.1 * k, -0.4 * s * k, 0.05 * s * k], neck: [0, -0.18 * s * k, 0], spine: [-0.03 * k, -0.05 * s * k, 0] }; } },
   reachOut: { dur: 1.6, fk: (t, s, d) => { const k = env(t, d, 0.2, 0.5); return { rightUpperArm: [0, 0.8 * k, -0.6 * k], rightLowerArm: [0, 0.2 * k, 0], spine: [0.08 * k, 0, 0] }; } },
   stretch: { dur: 3.2, fk: (t, s, d) => { const k = env(t, d, 0.8, 0.9); return { spine: [-0.12 * k, 0, 0], chest: [-0.08 * k, 0, 0], head: [-0.2 * k, 0, 0], leftShoulder: [0, 0, 0.15 * k], rightShoulder: [0, 0, -0.15 * k] }; } },
   footTap: { dur: 2.6, foot: (t, s, d) => ({ side: s, lift: Math.max(0, Math.sin(t * 9)) * 0.035 * env(t, d, 0.2, 0.3) }) },
@@ -152,7 +154,7 @@ const ARM_STYLES = {
   relaxed: null,
   clasped: { pole: [0.6, -0.8, -0.1], curl: 0.5, left: { bone: 'hips', off: [0.02, -0.06, 0.17] }, right: { bone: 'hips', off: [-0.02, -0.06, 0.17] } },
   behind: { pole: [0.6, -0.6, -0.5], curl: 0.5, left: { bone: 'hips', off: [0.05, -0.02, -0.15] }, right: { bone: 'hips', off: [-0.05, -0.02, -0.15] } },
-  crossed: { pole: [0.35, -0.9, 0.35], curl: 0.8, bend: 0.7, left: { bone: 'rightUpperArm', off: [0.075, -0.07, 0.1] }, right: { bone: 'leftUpperArm', off: [-0.075, -0.1, 0.12] } },
+  crossed: { pole: [0.55, -0.85, -0.1], curl: 0.75, bend: 0.25, left: { bone: 'chest', off: [-0.155, -0.11, 0.15] }, right: { bone: 'chest', off: [0.155, -0.075, 0.185] } },
   hug: { pole: [0.35, -0.9, 0.3], curl: 0.9, bend: 0.8, left: { bone: 'rightUpperArm', off: [0.06, -0.06, 0.085] }, right: { bone: 'leftUpperArm', off: [-0.06, -0.09, 0.1] } },
   hipHand: { pole: [0.9, -0.2, -0.45], curl: 0.3, right: { bone: 'hips', off: [-0.17, 0.07, 0.02] } },
   modest: { pole: [0.55, -0.8, -0.05], curl: 0.4, left: { bone: 'hips', off: [0.04, -0.12, 0.15] }, right: { bone: 'hips', off: [-0.04, -0.1, 0.16] } },
@@ -297,9 +299,12 @@ export class Animator {
       // heel-toe roll
       add('leftFoot', 0.25 * s - 0.15 * Math.max(0, -c), 0, 0); add('rightFoot', -0.25 * s - 0.15 * Math.max(0, c), 0, 0);
       add('leftToes', -0.3 * Math.max(0, s), 0, 0); add('rightToes', -0.3 * Math.max(0, -s), 0, 0);
-      // arms swing opposite, elbows bend forward on the forward swing
-      add('leftUpperArm', 0, -0.35 * s, 0.05); add('rightUpperArm', 0, -0.35 * s, -0.05);
-      add('leftLowerArm', 0, -0.25 - 0.2 * Math.max(0, -s), 0); add('rightLowerArm', 0, 0.25 + 0.2 * Math.max(0, s), 0);
+      // arms swing opposite to the legs: left foot forward (s > 0) -> right arm forward, left arm back
+      const sw = 0.42 * P.walk;
+      add('leftUpperArm', sw * s, 0, 0.06); add('rightUpperArm', -sw * s, 0, -0.06);
+      // elbows bend more on the forward swing
+      add('leftLowerArm', 0, -0.2 - 0.35 * Math.max(0, -s), 0); add('rightLowerArm', 0, 0.2 + 0.35 * Math.max(0, s), 0);
+      add('leftHand', 0.1 * s, 0, 0); add('rightHand', -0.1 * s, 0, 0);
       // pelvis rotation, torso counter-rotation, head stabilised
       add('hips', 0, 0.09 * s, 0.03 * c); add('spine', 0.04, -0.1 * s, -0.02 * c); add('chest', 0, -0.05 * s, 0); add('head', -0.02, 0.07 * s, 0.02 * c);
     }

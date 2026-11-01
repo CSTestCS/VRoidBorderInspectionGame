@@ -84,19 +84,53 @@ export function defaultConfig(modelEntry, analysis) {
     const myPieces = analysis.pieces.filter((p) => p.matKey === m.key);
     if (!myPieces.length) continue;
     // materials named X_01 / X_02 belong to the same garment
-    const base = m.name.replace(/(_\d{2})$/, '').replace(/\s*#\d+$/, '');
-    const cat = m.role === 'other' ? 'fixed' : guessCategory(m.name, m.box, H, myPieces);
+    const isGlasses = /glass|megane|eyewear|spectacle|goggle/i.test(m.name);
+    // frame + lens (or _01/_02 parts) of one garment share an item
+    const base = isGlasses ? '__glasses' : m.name.replace(/(_\d{2})$/, '').replace(/\s*#\d+$/, '');
+    const cat = m.role === 'other' ? 'fixed' : isGlasses ? 'accessory' : guessCategory(m.name, m.box, H, myPieces);
     let itemId = baseToItem[base];
     if (!itemId) {
       itemId = 'item' + (Object.keys(cfg.items).length + 1);
       baseToItem[base] = itemId;
       const def = { top: true, outer: true, bottom: true, onepiece: true, shoes: true };
-      const nm = cat === 'socks' && m.box.max.y > 0.3 * H ? 'Stockings' : DEFAULT_NAMES[cat] || 'Item';
+      const nm = isGlasses ? 'Glasses' : cat === 'socks' && m.box.max.y > 0.3 * H ? 'Stockings' : DEFAULT_NAMES[cat] || 'Item';
       cfg.items[itemId] = { name: nm, category: cat, fabric: defaultFabric(cat), pockets: !!def[cat], slot: cat === 'fixed' ? 'fixed' : cat === 'shoes' ? 'D' : slotSeq[slotI++ % 3] };
     }
-    for (const p of myPieces) cfg.pieces[p.id] = { item: itemId, colorSlot: 'item', visible: true };
+    const lens = isGlasses && /lens/i.test(m.name);
+    if (isGlasses) cfg.items[itemId].fabric = 'plastic';
+    for (const p of myPieces) cfg.pieces[p.id] = { item: itemId, colorSlot: lens ? 'fixed' : 'item', visible: true, ...(lens ? { fabric: 'glass' } : {}) };
   }
+  mergeBootShafts(cfg, analysis, H);
   return cfg;
+}
+
+// Leg pieces that sit on top of the shoes (thigh-high boot shafts stored in another
+// material) become part of the shoes item; other per-leg pieces become legwear.
+function mergeBootShafts(cfg, analysis, H) {
+  const piecesOf = (itemId) => analysis.pieces.filter((p) => cfg.pieces[p.id]?.item === itemId);
+  const shoesId = Object.keys(cfg.items).find((id) => cfg.items[id].category === 'shoes');
+  const shoesTop = shoesId ? Math.max(...piecesOf(shoesId).map((p) => p.box.max.y)) : -1;
+  for (const [id, it] of Object.entries(cfg.items)) {
+    if (!['onepiece', 'bottom', 'outer'].includes(it.category)) continue;
+    const ps = piecesOf(id);
+    const perLeg = ps.length >= 2 && ps.every((p) => {
+      const cx = (p.box.min.x + p.box.max.x) / 2;
+      return Math.abs(cx) > 0.02 * H && p.box.max.x - p.box.min.x < 0.2 * H && p.box.max.y < 0.6 * H;
+    });
+    if (!perLeg) continue;
+    const minY = Math.min(...ps.map((p) => p.box.min.y));
+    const maxY = Math.max(...ps.map((p) => p.box.max.y));
+    if (shoesId && minY < shoesTop + 0.05 * H && minY > 0.02 * H) {
+      for (const p of ps) cfg.pieces[p.id].item = shoesId;
+      cfg.items[shoesId].name = maxY > 0.35 * H ? 'Thigh-high Boots' : maxY > 0.2 * H ? 'Tall Boots' : 'Boots';
+      delete cfg.items[id];
+    } else if (minY < 0.06 * H) {
+      it.category = 'socks';
+      it.name = maxY > 0.3 * H ? 'Stockings' : 'Socks';
+      it.pockets = false;
+      it.fabric = 'cotton';
+    }
+  }
 }
 
 // Merge a saved config over the defaults (keeps new pieces/materials working).

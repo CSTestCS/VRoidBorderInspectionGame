@@ -27,8 +27,8 @@ Start a **New Game** and play the tutorial (skippable) — it walks through one 
 | `E` / left click | interact |
 | `1`–`5` | hands, flashlight, UV lamp, Geiger counter, hose |
 | Left mouse (hose) | spray water |
-| `R` / `T` | ask the visitor to raise arms / turn around |
-| `C` | view the visitor's ID card |
+| `T` / `R` | ask the visitor to raise arms (T) / turn around (R) |
+| `I` | view the visitor's ID card |
 | `Tab` | procedures manual |
 | `Enter` | confirm the tutorial prompt (Continue / Start Day 1) |
 | `Esc` | pause / close panel (frees the mouse), `F11` fullscreen |

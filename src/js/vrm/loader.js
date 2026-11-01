@@ -132,9 +132,9 @@ function getAnalysis(modelId, parts, vrm) {
         if (!big.length) { big.push(s); continue; }
         let best = big[0], bd = Infinity;
         for (const b of big) { const d = b.center.distanceTo(s.center); if (d < bd) { bd = d; best = b; } }
+        // keep the triangles, but stray fragments must not distort the piece's size
         best.tris = Uint32Array.from([...best.tris, ...s.tris]);
         best.triCount = best.tris.length;
-        best.box.union(s.box);
       }
       big.forEach((c, i) => pieces.push({ id: `${p.key}:${i}`, matKey: p.key, index: i, tris: c.tris, triCount: c.triCount, center: c.center, box: c.box }));
     }

@@ -55,7 +55,7 @@ const PAGES = {
     el('p', {}, 'Ordinary mud, dust and wear are ', el('b', {}, 'not'), ' contamination — wash those. Burning clean clothes is a violation. Visitors get dressed in whatever was not burned.'),
     el('p', { class: 'muted' }, 'Underwear is never removed. Shoes must come off before socks.')),
   'Body Inspection': () => el('div', {},
-    el('p', {}, 'Wash first, inspect after. Use ', el('kbd', {}, 'R'), ' to have the visitor raise their arms and ', el('kbd', {}, 'T'), ' to turn them around. Check every side.'),
+    el('p', {}, 'Wash first, inspect after. Use ', el('kbd', {}, 'T'), ' to have the visitor raise their arms and ', el('kbd', {}, 'R'), ' to turn them around. Check every side.'),
     el('h3', {}, 'Signs of infection'),
     el('ul', {},
       el('li', {}, el('b', {}, 'Discoloured sclera: '), 'the whites of the eyes are yellow, red, grey or dark. Zoom in on the eyes.'),
@@ -82,8 +82,8 @@ const PAGES = {
       el('li', {}, el('kbd', {}, 'E'), ' or left click (hands): interact'),
       el('li', {}, el('kbd', {}, '1'), ' hands · ', el('kbd', {}, '2'), ' flashlight · ', el('kbd', {}, '3'), ' UV lamp · ', el('kbd', {}, '4'), ' Geiger counter · ', el('kbd', {}, '5'), ' hose (after taking it from the reel)'),
       el('li', {}, el('kbd', {}, 'Left mouse'), ' (hold, hose equipped): spray water'),
-      el('li', {}, el('kbd', {}, 'R'), ' visitor raise/lower arms · ', el('kbd', {}, 'T'), ' visitor turn around'),
-      el('li', {}, el('kbd', {}, 'C'), ' view the ID card (after the booth) · ', el('kbd', {}, 'Tab'), ' this manual · ', el('kbd', {}, 'Esc'), ' pause / close'),
+      el('li', {}, el('kbd', {}, 'T'), ' visitor raise/lower arms · ', el('kbd', {}, 'R'), ' visitor turn around'),
+      el('li', {}, el('kbd', {}, 'I'), ' view the ID card (after the booth) · ', el('kbd', {}, 'Tab'), ' this manual · ', el('kbd', {}, 'Esc'), ' pause / close'),
       el('li', {}, el('kbd', {}, 'F11'), ' fullscreen'))),
 };
 
