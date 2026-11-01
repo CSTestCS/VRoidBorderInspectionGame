@@ -1,7 +1,8 @@
 // A fully set-up character instance built from a VRM + model config + look.
 import * as THREE from 'three';
 import { loadVRM } from './loader.js';
-import { convertMaterial, patchMaterial, BLANK_TEXTURE } from './materials.js';
+import { convertMaterial, patchMaterial, BLANK_TEXTURE, applyFabric, defaultFabric } from './materials.js';
+import { applyExpressionConfig } from './expressions.js';
 import { cleanBodyTexture } from './underwear.js';
 import { Surface, makeLayer } from './fx.js';
 import { Animator, Face } from './pose.js';
@@ -120,6 +121,7 @@ export class Character {
     }
 
     this.applyColors(look);
+    try { applyExpressionConfig(this.vrm, cfg.expressions); } catch (e) { console.warn('expression config', e); }
     this.animator = new Animator(this.vrm);
     this.face = new Face(this.vrm);
     this.springBase = [];
@@ -144,8 +146,9 @@ export class Character {
       const pc = this.cfg.pieces[p.id] || { item: 'loose', colorSlot: 'item', visible: true };
       const it = this.cfg.items[pc.item] || { name: 'Item', category: 'fixed', slot: 'fixed' };
       const slot = pc.colorSlot && pc.colorSlot !== 'item' ? pc.colorSlot : it.slot || 'A';
-      const key = this.opts.workshop ? p.id : `${pc.item}|${slot}`;
-      if (!groups.has(key)) groups.set(key, { itemId: pc.item, slot, tris: [], pieceIds: [], visible: pc.visible !== false && mc.visible !== false });
+      const fabric = pc.fabric && pc.fabric !== 'item' ? pc.fabric : it.fabric || defaultFabric(it.category);
+      const key = this.opts.workshop ? p.id : `${pc.item}|${slot}|${fabric}`;
+      if (!groups.has(key)) groups.set(key, { itemId: pc.item, slot, fabric, tris: [], pieceIds: [], visible: pc.visible !== false && mc.visible !== false });
       const g = groups.get(key);
       for (const t of p.tris) g.tris.push(t);
       g.pieceIds.push(p.id);
@@ -164,6 +167,7 @@ export class Character {
       geom.boundingSphere = src.boundingSphere;
       const mat = baseMat.clone();
       mat.userData = { ...baseMat.userData };
+      applyFabric(mat, g.fabric);
       patchMaterial(mat, 'cloth', { hvOverlay: { value: surf.layers.ov.tex }, hvGlow: { value: surf.layers.glow.tex }, hvOverlayOn: { value: 1 }, hvHighlight: { value: 0 } });
       const sm = new THREE.SkinnedMesh(geom, mat);
       sm.bind(mesh.skeleton, mesh.bindMatrix);
@@ -175,6 +179,7 @@ export class Character {
       sm.name = mesh.name + ':' + g.itemId;
       sm.visible = g.visible;
       sm.userData.slot = g.slot;
+      sm.userData.fabric = g.fabric;
       sm.userData.itemId = g.itemId;
       sm.userData.pieceIds = g.pieceIds;
       sm.userData.matKey = part.key;

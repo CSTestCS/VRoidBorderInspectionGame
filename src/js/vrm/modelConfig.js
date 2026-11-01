@@ -1,3 +1,4 @@
+import { defaultFabric } from './materials.js';
 // Per-model configuration: which materials are which, how clothing pieces are
 // grouped into removable items, item categories and colour slots. Defaults are
 // guessed from names + geometry; the Model Workshop lets players fix them.
@@ -91,7 +92,7 @@ export function defaultConfig(modelEntry, analysis) {
       baseToItem[base] = itemId;
       const def = { top: true, outer: true, bottom: true, onepiece: true, shoes: true };
       const nm = cat === 'socks' && m.box.max.y > 0.3 * H ? 'Stockings' : DEFAULT_NAMES[cat] || 'Item';
-      cfg.items[itemId] = { name: nm, category: cat, pockets: !!def[cat], slot: cat === 'fixed' ? 'fixed' : cat === 'shoes' ? 'D' : slotSeq[slotI++ % 3] };
+      cfg.items[itemId] = { name: nm, category: cat, fabric: defaultFabric(cat), pockets: !!def[cat], slot: cat === 'fixed' ? 'fixed' : cat === 'shoes' ? 'D' : slotSeq[slotI++ % 3] };
     }
     for (const p of myPieces) cfg.pieces[p.id] = { item: itemId, colorSlot: 'item', visible: true };
   }

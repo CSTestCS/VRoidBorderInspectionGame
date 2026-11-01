@@ -207,3 +207,44 @@ export function convertMaterial(src, role) {
   m.userData.baseColor = p.color;
   return m;
 }
+
+// ---- clothing fabric presets -------------------------------------------------
+export const FABRICS = [
+  ['cotton', 'Soft cloth (cotton)'], ['knit', 'Knit / wool'], ['denim', 'Denim / canvas'], ['silk', 'Silk / satin'],
+  ['sheer', 'Sheer cloth (see-through)'], ['leather', 'Leather'], ['latex', 'Latex / vinyl'], ['rubber', 'Rubber'],
+  ['plastic', 'Plastic'], ['metal', 'Metal'],
+];
+const P = {
+  cotton: { roughness: 0.92, metalness: 0, sheen: 0.45, sheenRoughness: 0.9, clearcoat: 0, normal: 0.35, anisotropy: 0 },
+  knit: { roughness: 0.95, metalness: 0, sheen: 0.7, sheenRoughness: 0.8, clearcoat: 0, normal: 1.0, anisotropy: 0 },
+  denim: { roughness: 0.88, metalness: 0, sheen: 0.2, sheenRoughness: 0.7, clearcoat: 0, normal: 0.6, anisotropy: 0 },
+  silk: { roughness: 0.32, metalness: 0, sheen: 1.0, sheenRoughness: 0.28, clearcoat: 0, normal: 0.25, anisotropy: 0.6 },
+  sheer: { roughness: 0.6, metalness: 0, sheen: 0.6, sheenRoughness: 0.5, clearcoat: 0, normal: 0.2, anisotropy: 0, opacity: 0.42 },
+  leather: { roughness: 0.48, metalness: 0, sheen: 0, sheenRoughness: 0.5, clearcoat: 0.35, clearcoatRoughness: 0.45, normal: 0.5, anisotropy: 0 },
+  latex: { roughness: 0.14, metalness: 0, sheen: 0, sheenRoughness: 0.5, clearcoat: 1, clearcoatRoughness: 0.05, normal: 0.15, anisotropy: 0 },
+  rubber: { roughness: 0.7, metalness: 0, sheen: 0, sheenRoughness: 0.5, clearcoat: 0.1, clearcoatRoughness: 0.6, normal: 0.4, anisotropy: 0 },
+  plastic: { roughness: 0.35, metalness: 0, sheen: 0, sheenRoughness: 0.5, clearcoat: 0.4, clearcoatRoughness: 0.2, normal: 0.3, anisotropy: 0 },
+  metal: { roughness: 0.3, metalness: 0.9, sheen: 0, sheenRoughness: 0.5, clearcoat: 0, normal: 0.4, anisotropy: 0.2 },
+};
+export function defaultFabric(category) {
+  return { shoes: 'leather', socks: 'cotton', gloves: 'cotton', hat: 'cotton', outer: 'denim', bottom: 'cotton', top: 'cotton', onepiece: 'cotton', accessory: 'cotton' }[category] || 'cotton';
+}
+export function applyFabric(m, fabric) {
+  const p = P[fabric] || P.cotton;
+  m.roughness = p.roughness;
+  m.metalness = p.metalness;
+  m.sheen = p.sheen;
+  m.sheenRoughness = p.sheenRoughness;
+  m.clearcoat = p.clearcoat;
+  m.clearcoatRoughness = p.clearcoatRoughness ?? 0.2;
+  m.anisotropy = p.anisotropy;
+  if (m.normalScale) m.normalScale.setScalar(p.normal);
+  const sheer = p.opacity != null;
+  if (m.userData.baseAlphaTest === undefined) m.userData.baseAlphaTest = m.alphaTest;
+  m.transparent = sheer;
+  m.opacity = sheer ? p.opacity : 1;
+  m.depthWrite = !sheer;
+  m.alphaTest = sheer ? 0.02 : m.userData.baseAlphaTest;
+  m.userData.fabric = fabric;
+  m.needsUpdate = true;
+}

@@ -230,6 +230,10 @@ export class Face {
   update(dt) {
     if (!this.em) return;
     this.time += dt;
+    if (this.preview) {
+      for (const e of this.em.expressions) this.em.setValue(e.expressionName, e.expressionName === this.preview ? 1 : 0);
+      return;
+    }
     const tgt = {};
     for (const e of EMOTIONS) tgt[e] = this.base[e] || 0;
     this.timed = this.timed.filter((t) => t.until > this.time);

@@ -9,6 +9,8 @@ import { CATEGORIES, MATERIAL_ROLES, COLOR_SLOTS, resolveConfig } from './vrm/mo
 import { chooseUnderwear, composeUnderwear } from './vrm/underwear.js';
 import { SKIN_TONES, HAIR_NATURAL, EYE_COLORS, clothColor } from './palettes.js';
 import { POSES } from './vrm/pose.js';
+import { FABRICS, applyFabric, defaultFabric } from './vrm/materials.js';
+import { morphNames, expressionNames, readBinds, writeBinds } from './vrm/expressions.js';
 
 export class Workshop {
   constructor(app) {
@@ -55,7 +57,7 @@ export class Workshop {
       el('button', { onclick: () => this.frame('head') }, 'Face'),
       el('button', { onclick: () => this.frame('body') }, 'Full body'),
       this.poseSel = el('select', { onchange: () => this.ch?.animator.setPose(this.poseSel.value) }, Object.keys(POSES).filter((p) => p !== 'turnAway').map((p) => el('option', { value: p, selected: p === 'idle' }, 'Pose: ' + p))),
-      this.exprSel = el('select', { onchange: () => { this.ch?.face.setBase(this.exprSel.value === 'neutral' ? {} : { [this.exprSel.value]: 1 }); } }, ['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised'].map((e) => el('option', { value: e }, 'Expression: ' + e)))));
+      this.exprSel = el('select', { onchange: () => { if (this.ch) this.ch.face.preview = null; this.ch?.face.setBase(this.exprSel.value === 'neutral' ? {} : { [this.exprSel.value]: 1 }); } }, ['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised'].map((e) => el('option', { value: e }, 'Expression: ' + e)))));
     this.view.append(el('div', { class: 'ws-hint' }, 'Drag to orbit · right-drag to pan · wheel to zoom · click a clothing piece to select it'));
     r.domElement.addEventListener('click', (e) => this.pick(e));
     this.resize = () => { const w = this.view.clientWidth, h = this.view.clientHeight; r.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); };
@@ -178,6 +180,8 @@ export class Workshop {
       const it = this.cfg.items[pc?.item];
       mesh.visible = pc?.visible !== false && mc?.visible !== false && it?.category !== 'underwear';
       mesh.userData.slot = pc?.colorSlot && pc.colorSlot !== 'item' ? pc.colorSlot : it?.slot || 'fixed';
+      const fabric = pc?.fabric && pc.fabric !== 'item' ? pc.fabric : it?.fabric || defaultFabric(it?.category);
+      if (mesh.material.userData.fabric !== fabric) applyFabric(mesh.material, fabric);
       mesh.material.userData.hv.hvHighlight.value = pid === this.selectedPiece ? 1 : 0;
     }
     this.ch.applyColors(this.look);
@@ -239,14 +243,15 @@ export class Workshop {
         const r = el('div', { class: 'ws-row ws-sub', 'data-piece': p.id, style: p.id === this.selectedPiece ? { background: '#2a2410' } : {} },
           el('input', { type: 'checkbox', checked: pc.visible !== false, title: 'Visible', onchange: (e) => { pc.visible = e.target.checked; this.markDirty(); this.applyPieceState(); } }),
           el('span', { class: 'name', style: { cursor: 'pointer' }, onclick: () => { this.selectedPiece = p.id; this.applyPieceState(); this.renderPanel(); } }, `Piece ${idx + 1} · ${p.triCount} tris · y ${p.box.min.y.toFixed(2)}–${p.box.max.y.toFixed(2)}`),
-          el('span', { style: { display: 'flex', gap: '4px' } },
+          el('span', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', gridColumn: '1 / -1', paddingLeft: '22px' } },
             sel(itemOpts, pc.item, (v) => {
               if (v === '__new') { const id = 'item' + Date.now().toString(36); cfg.items[id] = { name: 'New item', category: 'accessory', pockets: false, slot: 'A' }; pc.item = id; }
               else pc.item = v;
               for (const iid of Object.keys(cfg.items)) if (!Object.values(cfg.pieces).some((q) => q.item === iid)) delete cfg.items[iid];
               this.markDirty(); this.applyPieceState(); this.renderPanel();
             }),
-            sel([['item', 'Item colour'], ...COLOR_SLOTS], pc.colorSlot || 'item', (v) => { pc.colorSlot = v; this.markDirty(); this.applyPieceState(); })));
+            sel([['item', 'Item colour'], ...COLOR_SLOTS], pc.colorSlot || 'item', (v) => { pc.colorSlot = v; this.markDirty(); this.applyPieceState(); }),
+            sel([['item', 'Item fabric'], ...FABRICS], pc.fabric || 'item', (v) => { pc.fabric = v; this.markDirty(); this.applyPieceState(); })));
         P.append(r);
       });
     }
@@ -260,10 +265,56 @@ export class Workshop {
         el('div', { class: 'ws-field' }, el('label', {}, 'Name'), el('input', { value: it.name, oninput: (e) => { it.name = e.target.value; this.markDirty(); } })),
         el('div', { class: 'ws-field' }, el('label', {}, 'Category'), sel(CATEGORIES.map((c) => [c.id, c.label]), it.category, (v) => { it.category = v; it.pockets = !!CATEGORIES.find((c) => c.id === v)?.pockets; this.markDirty(); this.applyPieceState(); this.renderPanel(); })),
         el('div', { class: 'ws-field' }, el('label', {}, 'Colour'), el('span', {}, sw, ' ', sel(COLOR_SLOTS, it.slot || 'A', (v) => { it.slot = v; this.markDirty(); this.applyPieceState(); this.renderPanel(); }))),
+        el('div', { class: 'ws-field' }, el('label', {}, 'Fabric'), sel(FABRICS, it.fabric || defaultFabric(it.category), (v) => { it.fabric = v; this.markDirty(); this.applyPieceState(); })),
         el('div', { class: 'ws-field' }, el('label', {}, 'Can hide items'), el('input', { type: 'checkbox', checked: !!it.pockets, onchange: (e) => { it.pockets = e.target.checked; this.markDirty(); } })),
         el('div', { class: 'muted', style: { fontSize: '12px' } }, `${count} piece(s)`)));
     }
+    this.renderExpressions(P, sel);
     P.scrollTop = scroll;
+  }
+
+  renderExpressions(P, sel) {
+    if (!this.ch) return;
+    const vrm = this.ch.vrm;
+    const names = expressionNames(vrm);
+    if (!names.length) return;
+    const cfg = this.cfg;
+    P.append(el('h3', {}, 'Expressions (blend shapes)'));
+    P.append(el('p', { class: 'muted', style: { fontSize: '12px' } }, 'Choose which blend shapes each expression drives and how strongly. The game uses happy, angry, sad, relaxed, surprised, blink and the mouth shapes (aa, ih, ou, ee, oh) to react to what happens.'));
+    if (!this.exprName || !names.includes(this.exprName)) this.exprName = names.includes('happy') ? 'happy' : names[0];
+    const name = this.exprName;
+    const weights = { ...readBinds(vrm, name) };
+    const list = el('div');
+    const filter = el('input', { placeholder: 'Filter blend shapes…', style: { width: '100%', margin: '6px 0' }, oninput: () => draw() });
+    const showAll = el('input', { type: 'checkbox' });
+    showAll.onchange = () => draw();
+    const commit = () => {
+      cfg.expressions = cfg.expressions || {};
+      cfg.expressions[name] = Object.fromEntries(Object.entries(weights).filter(([, w]) => w > 0));
+      writeBinds(vrm, name, cfg.expressions[name]);
+      this.markDirty();
+    };
+    const all = morphNames(vrm);
+    const draw = () => {
+      list.innerHTML = '';
+      const f = filter.value.toLowerCase();
+      const shown = all.filter((n) => (!f || n.toLowerCase().includes(f)) && (showAll.checked || f || weights[n] > 0));
+      for (const n of shown) {
+        const val = el('span', { style: { width: '34px', textAlign: 'right' } }, (weights[n] || 0).toFixed(2));
+        list.append(el('div', { class: 'ws-row', style: { gridTemplateColumns: '1fr 120px 34px' } },
+          el('span', { class: 'name', title: n }, n),
+          el('input', { type: 'range', min: 0, max: 1, step: 0.01, value: weights[n] || 0, oninput: (e) => { weights[n] = Number(e.target.value); val.textContent = weights[n].toFixed(2); commit(); } }),
+          val));
+      }
+      if (!shown.length) list.append(el('p', { class: 'muted', style: { fontSize: '12px' } }, 'No blend shapes bound. Tick "show all" to add some.'));
+    };
+    P.append(el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' } },
+      sel(names.map((n) => [n, n + (cfg.expressions?.[n] ? ' (custom)' : '')]), name, (v) => { this.exprName = v; this.ch.face.preview = v; this.renderPanel(); }),
+      el('button', { onclick: () => { this.ch.face.preview = this.ch.face.preview === name ? null : name; } }, 'Preview'),
+      el('button', { onclick: async () => { if (cfg.expressions) delete cfg.expressions[name]; this.markDirty(); await this.rebuild(); this.ch.face.preview = name; this.renderPanel(); } }, 'Reset'),
+      el('label', { style: { fontSize: '12px' } }, showAll, ' show all')));
+    P.append(filter, list);
+    draw();
   }
 
   async save() {

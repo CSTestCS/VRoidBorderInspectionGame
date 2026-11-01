@@ -105,3 +105,12 @@ kbd { background: #2a3237; border: 1px solid #44525b; border-bottom-width: 2px; 
 .ws-toolbar { position: absolute; left: 12px; top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
 .ws-hint { position: absolute; left: 12px; bottom: 12px; color: var(--muted); font-size: 12px; background: rgba(0,0,0,.5); padding: 6px 10px; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; border: 1px solid #000; }
+
+/* stacking: screens (menus) < workshop < modals < loading */
+#viewport { z-index: 0; }
+#hud { z-index: 5; }
+#screen-root { position: relative; z-index: 10; }
+#workshop { z-index: 15; }
+#modal-root { z-index: 20; }
+#loading { z-index: 30; }
+.screen { z-index: 10; }

@@ -1,37 +1,135 @@
 {
-  "YoungFemaleCitizen": {
-    "name": "Young Female Citizen", "sex": "female", "age": "young",
-    "items": {
-      "item1": { "name": "Sweater", "category": "top", "pockets": true, "slot": "A" },
-      "item2": { "name": "Pleated Skirt", "category": "bottom", "pockets": true, "slot": "B" },
-      "item3": { "name": "Shoes", "category": "shoes", "pockets": true, "slot": "D" }
-    }
-  },
-  "OldFemaleCitizen": {
-    "name": "Old Female Citizen", "sex": "female", "age": "old",
-    "items": {
-      "item1": { "name": "Blouse", "category": "top", "pockets": true, "slot": "A" },
-      "item2": { "name": "Skirt", "category": "bottom", "pockets": true, "slot": "B" },
-      "item3": { "name": "Shoes", "category": "shoes", "pockets": true, "slot": "D" },
-      "item4": { "name": "Stockings", "category": "socks", "pockets": false, "slot": "dark" }
-    }
-  },
-  "OldMaleCitizen": {
-    "name": "Old Male Citizen", "sex": "male", "age": "old",
-    "items": {
-      "item1": { "name": "Dress Shirt", "category": "top", "pockets": true, "slot": "A" },
-      "item2": { "name": "Trousers", "category": "bottom", "pockets": true, "slot": "B" },
-      "item3": { "name": "Shoes", "category": "shoes", "pockets": true, "slot": "D" },
-      "item4": { "name": "Necktie", "category": "accessory", "pockets": false, "slot": "C" }
-    }
-  },
-  "YoungMaleCitizen": {
-    "name": "Young Male Citizen", "sex": "male", "age": "young",
-    "items": {
-      "item1": { "name": "Jacket", "category": "outer", "pockets": true, "slot": "A" },
-      "item2": { "name": "Pants", "category": "bottom", "pockets": true, "slot": "B" },
-      "item3": { "name": "Shoes", "category": "shoes", "pockets": true, "slot": "D" },
-      "item4": { "name": "Wristbands", "category": "gloves", "pockets": false, "slot": "C" }
-    }
+ "YoungFemaleCitizen": {
+  "name": "Young Female Citizen",
+  "sex": "female",
+  "age": "young",
+  "items": {
+   "item1": {
+    "name": "Sweater",
+    "category": "top",
+    "pockets": true,
+    "slot": "A",
+    "fabric": "knit"
+   },
+   "item2": {
+    "name": "Pleated Skirt",
+    "category": "bottom",
+    "pockets": true,
+    "slot": "B",
+    "fabric": "cotton"
+   },
+   "item3": {
+    "name": "Shoes",
+    "category": "shoes",
+    "pockets": true,
+    "slot": "D",
+    "fabric": "leather"
+   }
   }
+ },
+ "OldFemaleCitizen": {
+  "name": "Old Female Citizen",
+  "sex": "female",
+  "age": "old",
+  "items": {
+   "item1": {
+    "name": "Blouse",
+    "category": "top",
+    "pockets": true,
+    "slot": "A",
+    "fabric": "silk"
+   },
+   "item2": {
+    "name": "Skirt",
+    "category": "bottom",
+    "pockets": true,
+    "slot": "B",
+    "fabric": "cotton"
+   },
+   "item3": {
+    "name": "Shoes",
+    "category": "shoes",
+    "pockets": true,
+    "slot": "D",
+    "fabric": "leather"
+   },
+   "item4": {
+    "name": "Stockings",
+    "category": "socks",
+    "pockets": false,
+    "slot": "dark",
+    "fabric": "sheer"
+   }
+  }
+ },
+ "OldMaleCitizen": {
+  "name": "Old Male Citizen",
+  "sex": "male",
+  "age": "old",
+  "items": {
+   "item1": {
+    "name": "Dress Shirt",
+    "category": "top",
+    "pockets": true,
+    "slot": "A",
+    "fabric": "cotton"
+   },
+   "item2": {
+    "name": "Trousers",
+    "category": "bottom",
+    "pockets": true,
+    "slot": "B",
+    "fabric": "denim"
+   },
+   "item3": {
+    "name": "Shoes",
+    "category": "shoes",
+    "pockets": true,
+    "slot": "D",
+    "fabric": "leather"
+   },
+   "item4": {
+    "name": "Necktie",
+    "category": "accessory",
+    "pockets": false,
+    "slot": "C",
+    "fabric": "silk"
+   }
+  }
+ },
+ "YoungMaleCitizen": {
+  "name": "Young Male Citizen",
+  "sex": "male",
+  "age": "young",
+  "items": {
+   "item1": {
+    "name": "Jacket",
+    "category": "outer",
+    "pockets": true,
+    "slot": "A",
+    "fabric": "cotton"
+   },
+   "item2": {
+    "name": "Pants",
+    "category": "bottom",
+    "pockets": true,
+    "slot": "B",
+    "fabric": "denim"
+   },
+   "item3": {
+    "name": "Shoes",
+    "category": "shoes",
+    "pockets": true,
+    "slot": "D",
+    "fabric": "leather"
+   },
+   "item4": {
+    "name": "Wristbands",
+    "category": "gloves",
+    "pockets": false,
+    "slot": "C",
+    "fabric": "knit"
+   }
+  }
+ }
 }
