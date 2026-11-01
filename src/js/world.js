@@ -446,7 +446,7 @@ export class World {
     this.wall(-14, 16, -14, 22, 2.9, M.concrete);
     this.wall(-6, 21, -6, 22, 2.9, M.concrete);
     this.wall(-9, 16, -9, 22, 2.9, M.concrete, [{ c: 19, w: 3.4, h: 2.3, sill: 0.95, block: true }]);
-    const iglass = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.35), new THREE.MeshPhysicalMaterial({ color: 0x8899aa, metalness: 0.9, roughness: 0.05, transparent: true, opacity: 0.45 }));
+    const iglass = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.35), new THREE.MeshPhysicalMaterial({ color: 0x8899aa, metalness: 0.9, roughness: 0.05, transparent: true, opacity: 0.22 }));
     iglass.position.set(-9, 1.625, 19); iglass.rotation.y = Math.PI / 2; this.group.add(iglass);
     this.box(0.9, 0.05, 1.4, M.metal, -11.1, 0.76, 19); this.box(0.06, 0.74, 0.06, M.metal, -11.1, 0.37, 19);
     // chairs
