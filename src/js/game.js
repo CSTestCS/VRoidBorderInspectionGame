@@ -632,6 +632,7 @@ export class Game {
         this.tanks[i] = patient;
         this.placeInTank(patient, i);
         audio.bubble();
+        this.updateHUD();
       });
       this.ui.toast(`Visitor placed in Tank ${i + 1}. Check the tank console in the Medical Lab every day.`, 'warn', 6);
     } else if (choice === 'interro') {
