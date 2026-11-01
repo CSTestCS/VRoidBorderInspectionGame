@@ -6,6 +6,23 @@ import { Character } from './vrm/character.js';
 import { SCLERA } from './palettes.js';
 
 const W = 300, H = 380;
+
+// Compile shader variants one mesh at a time, yielding between them, so even
+// GPUs/drivers without parallel shader compilation never stall a frame for long.
+export async function compileGradually(renderer, root, camera, scene) {
+  const meshes = [];
+  root.traverse((o) => { if (o.isMesh && o.visible !== false) meshes.push(o); });
+  const seen = new Set();
+  for (const m of meshes) {
+    const key = m.material.uuid + (m.isSkinnedMesh ? 's' : 'n');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const parent = m.parent;
+    try { await renderer.compileAsync(m, camera, scene); } catch (e) { console.warn('compile', e); }
+    if (parent && m.parent !== parent) parent.add(m);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+}
 let studio = null;
 
 function getStudio() {
@@ -57,7 +74,20 @@ function snap(engine, ch) {
 
 // Portrait from an already-built visitor (same model): temporarily show the
 // pre-collapse look without conditions, dirt or wetness.
-export function renderPortraitFrom(engine, ch, portraitLook) {
+// The studio uses different lights than the facility, so its shader variants are
+// compiled asynchronously before the (then cheap) render.
+async function precompile(engine, ch) {
+  const { scene, cam } = getStudio();
+  scene.environment = engine.envMap;
+  const parent = ch.root.parent;
+  scene.add(ch.root);
+  await compileGradually(engine.renderer, ch.root, cam, scene);
+  scene.remove(ch.root);
+  if (parent) parent.add(ch.root);
+}
+
+export async function renderPortraitFrom(engine, ch, portraitLook) {
+  await precompile(engine, ch);
   const saved = { look: ch.look, pose: ch.animator.pose };
   ch.applyColors({ ...portraitLook, scale: ch.look.scale, sclera: SCLERA.normal });
   ch.setLayers({ cond: 0, fx: 0 });
@@ -79,6 +109,7 @@ export async function renderPortrait(engine, modelsById, portraitSpec) {
   const ch = await Character.create(M.entry, M.cfg, { ...portraitSpec.look, scale: 1 }, { fx: false, lowRes: true });
   ch.setLayers({ cond: 0, fx: 0 });
   for (let i = 0; i < 30; i++) ch.update(1 / 30);
+  await precompile(engine, ch);
   const img = snap(engine, ch);
   ch.dispose();
   return img;

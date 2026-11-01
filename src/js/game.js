@@ -5,7 +5,7 @@ import { Player } from './player.js';
 import { audio } from './audio.js';
 import { RNG, el, clamp, damp, sleep } from './util.js';
 import { generateVisitor, buildVisitorCharacter, correctOutcome, measureDirt, paintClothing, PROBLEM_LABEL, CURRENT_YEAR } from './visitor.js';
-import { renderPortrait, renderPortraitFrom } from './portrait.js';
+import { renderPortrait, renderPortraitFrom, compileGradually } from './portrait.js';
 import { drawCardFront, drawCardBack, drawCardUV, makeCardMesh, fmtDate } from './idcard.js';
 import { patchMaterial } from './vrm/materials.js';
 import { OBJECTS } from './objects.js';
@@ -232,7 +232,7 @@ export class Game {
       job.ch = ch;
       // the portrait normally shows the same model; only a false identity needs another one
       job.portrait = spec.card.portrait.modelId === spec.modelId
-        ? renderPortraitFrom(this.engine, ch, spec.card.portrait.look)
+        ? await renderPortraitFrom(this.engine, ch, spec.card.portrait.look)
         : await renderPortrait(this.engine, this.modelsById, spec.card.portrait);
       await this.warm(ch);
       return job;
@@ -265,7 +265,7 @@ export class Game {
     for (const it of ch.items.values()) for (const m of it.meshes) twins.add(new THREE.Mesh(tg, m.material));
     ch.root.add(twins);
     const prevVis = ch.root.visible;
-    try { await r.compileAsync(ch.root, this.engine.camera, this.scene); } catch (e) { console.warn('compileAsync', e); }
+    await compileGradually(r, ch.root, this.engine.camera, this.scene);
     ch.root.remove(twins);
     tg.dispose();
     ch.root.visible = prevVis;
