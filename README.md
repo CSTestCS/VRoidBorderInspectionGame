@@ -66,6 +66,10 @@ Open **Model Workshop** from the main menu and click **Import .vrm…**. For eve
   non-removable) and whether it can hide items;
 * choose which colour slot each piece/item takes (cloth A–D, skin, hair, eye, random dark/light,
   or keep the texture colour);
+* pick a **fabric** for each item or piece: soft cloth, knit, denim, silk/satin, sheer (see-through),
+  leather, latex/vinyl, rubber, plastic or metal;
+* edit **expressions**: choose which face blend shapes each VRM expression (happy, angry, sad,
+  relaxed, surprised, blink, mouth shapes, custom ones) drives and at what weight, with live preview;
 * set body type (female/male underwear rules), age group, and the built-in underwear removal
   sensitivity; preview random looks, poses and expressions.
 
