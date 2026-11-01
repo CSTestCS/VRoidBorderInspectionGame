@@ -97,7 +97,20 @@ export class Game {
       r.setRenderTarget(this.engine.composer.renderTarget1);
       r.compile(this.scene, this.engine.camera);
     } catch (e) { console.warn(e); }
+    // draw the facility once from each room into a tiny hidden target: finishes
+    // shader linking and uploads every texture before the shift starts
+    const rt = new THREE.WebGLRenderTarget(32, 32, { type: THREE.HalfFloatType });
+    const cam = this.engine.camera;
+    const saved = cam.position.clone(), savedQ = cam.quaternion.clone();
+    const views = [[0, 1.6, 2.2, 0, 1.3, -1], [0, 1.6, -3, 0, 1.2, 3], [0, 1.6, 10.5, 0, 1.2, 15], [0, 1.6, 19, 0, 1.2, 11], [-6.7, 1.6, 0, -6.7, 1.2, 8], [9, 1.6, 15, 13, 1.2, 18], [-7.5, 1.6, 18, -12, 1, 19]];
+    r.setRenderTarget(rt);
+    for (const [x, y, z, tx, ty, tz] of views) {
+      cam.position.set(x, y, z); cam.lookAt(tx, ty, tz); cam.updateMatrixWorld(true);
+      try { r.render(this.scene, cam); } catch (e) { console.warn(e); }
+    }
     r.setRenderTarget(prev);
+    rt.dispose();
+    cam.position.copy(saved); cam.quaternion.copy(savedQ);
     tools.forEach((t, i) => (t.visible = vis[i]));
     this.scene.remove(card);
     card.userData.textures.forEach((t) => t.dispose());
@@ -351,8 +364,9 @@ export class Game {
     await compileGradually(r, ch.root, this.engine.camera, this.scene, this.engine.composer.renderTarget1);
     // one tiny off-screen draw finishes linking every program and uploads buffers
     const rt = this.warmTarget || (this.warmTarget = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType }));
+    // hide room geometry but keep every light, so the warmed variants are the real ones
     const hidden = [];
-    this.scene.traverse((o) => { if (o !== this.scene && o.parent === this.scene && o.visible && o !== this.engine.camera && !o.isLight) { hidden.push(o); o.visible = false; } });
+    this.scene.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && o.visible && !ch.root.getObjectById(o.id) && o.parent !== this.engine.camera) { hidden.push(o); o.visible = false; } });
     const oldParent = ch.root.parent;
     this.scene.add(ch.root);
     const prev = r.getRenderTarget();
