@@ -131,7 +131,10 @@ async function drawLayer(ctx, kind, layer, size) {
     const [cr, cg, cb] = layer.color.map((v) => v * 255);
     let pr = 0, pgc = 0, pb = 0;
     if (pm) [pr, pgc, pb] = layer.print.color.map((v) => v * 255);
+    let t0 = performance.now();
     for (let i = 0; i < px.length; i += 4) {
+      // yield to the frame loop now and then so compositing never causes a hitch
+      if ((i & 0xffff) === 0 && performance.now() - t0 > 6) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); }
       if (px[i + 3] === 0) continue;
       const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
       let r, gg, b;

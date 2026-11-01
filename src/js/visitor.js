@@ -10,6 +10,16 @@ import { removableItems } from './vrm/modelConfig.js';
 import * as FX from './vrm/fx.js';
 
 export const CURRENT_YEAR = 2058;
+
+// Cooperative time slicing so heavy CPU work never blocks a frame for long.
+export function slicer(budgetMs = 6) {
+  let t0 = performance.now();
+  return async () => {
+    if (performance.now() - t0 < budgetMs) return;
+    await new Promise((r) => setTimeout(r, 0));
+    t0 = performance.now();
+  };
+}
 export const PROBLEMS = ['invalidPortrait', 'invalidName', 'invalidDetails', 'forgedSeal', 'weapon', 'substance', 'contaminatedClothing', 'discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation'];
 export const PROBLEM_LABEL = {
   invalidPortrait: 'Portrait does not match', invalidName: 'Name does not match', invalidDetails: 'Card details do not match', forgedSeal: 'Forged card (UV seal)',
@@ -209,38 +219,39 @@ function sampleRegion(surf, rng, region) {
   return surf.sampleVertex(rng, r.bones, r.filter) || surf.sampleVertex(rng);
 }
 
-export function paintBody(ch, spec) {
+export async function paintBody(ch, spec) {
+  const tick = slicer();
   const B = ch.surfBody, F = ch.surfFace;
   if (!B) return;
   const rng = new RNG((spec.seed ^ 0x5eed) >>> 0);
   const b = spec.body;
   // conditions first (cond layer)
-  for (const reg of b.discolor) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintDiscolor(B, v.p, v.n, rng.float(0.07, 0.12), b.discolorColor, rng.int(1, 999)); if (b.makeup) FX.paintMakeup(B, v.p, v.n, 0.15); } }
+  for (const reg of b.discolor) { const v = sampleRegion(B, rng, reg); if (v) { { FX.paintDiscolor(B, v.p, v.n, rng.float(0.07, 0.12), b.discolorColor, rng.int(1, 999)); await tick(); } if (b.makeup) { FX.paintMakeup(B, v.p, v.n, 0.15); await tick(); } } }
   if (b.discolor.length && F && rng.chance(0.5)) {
     let top = -1e9; for (let i = 1; i < F.bindPos.length; i += 3) if (F.bindPos[i] > top) top = F.bindPos[i];
     const v = F.sampleVertex(rng, null, (p, n) => n.z > 0.2 && p.y < top - 0.12);
-    if (v) { FX.paintDiscolor(F, v.p, v.n, 0.035, b.discolorColor, rng.int(1, 999)); if (b.makeup) FX.paintMakeup(F, v.p, v.n, 0.05); }
+    if (v) { { FX.paintDiscolor(F, v.p, v.n, 0.035, b.discolorColor, rng.int(1, 999)); await tick(); } if (b.makeup) { FX.paintMakeup(F, v.p, v.n, 0.05); await tick(); } }
   }
-  for (const reg of b.bites) { const v = sampleRegion(B, rng, reg); if (v) FX.paintBite(B, v.p, v.n, rng.float(0.9, 1.25), rng, true); }
-  for (const reg of b.burns) { const v = sampleRegion(B, rng, reg); if (v) FX.paintBurn(B, v.p, v.n, rng.float(0.04, 0.08), rng.int(1, 999)); }
+  for (const reg of b.bites) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintBite(B, v.p, v.n, rng.float(0.9, 1.25), rng, true); await tick(); } }
+  for (const reg of b.burns) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintBurn(B, v.p, v.n, rng.float(0.04, 0.08), rng.int(1, 999)); await tick(); } }
   for (const d of b.decoys) {
     const v = sampleRegion(B, rng, d.region);
     if (!v) continue;
-    if (d.type === 'cut') FX.paintCut(B, v.p, v.n, rng.float(0.03, 0.06), rng);
-    else if (d.type === 'bruise') FX.paintBruise(B, v.p, v.n, rng.float(0.03, 0.06), rng.int(1, 99));
-    else FX.paintTattoo(B, v.p, v.n, rng.float(0.03, 0.05), rng.int(1, 99));
+    if (d.type === 'cut') { FX.paintCut(B, v.p, v.n, rng.float(0.03, 0.06), rng); await tick(); }
+    else if (d.type === 'bruise') { FX.paintBruise(B, v.p, v.n, rng.float(0.03, 0.06), rng.int(1, 99)); await tick(); }
+    else { FX.paintTattoo(B, v.p, v.n, rng.float(0.03, 0.05), rng.int(1, 99)); await tick(); }
   }
   // washable dirt
   const dirt = b.dirt;
-  for (let i = 0; i < 7; i++) { const v = sampleRegion(B, rng, rng.pick(['foot', 'calf', 'calf', 'foot'])); if (v) FX.paintDirt(B, v.p, v.n, rng.float(0.08, 0.16), dirt * rng.float(0.6, 1), rng.int(1, 999)); }
-  for (let i = 0; i < 4; i++) { const v = sampleRegion(B, rng, rng.pick(['hand', 'forearm'])); if (v) FX.paintDirt(B, v.p, v.n, rng.float(0.06, 0.12), dirt * rng.float(0.5, 0.9), rng.int(1, 999)); }
-  for (let i = 0; i < 6; i++) { const v = B.sampleVertex(rng); if (v) FX.paintDirt(B, v.p, v.n, rng.float(0.05, 0.12), dirt * rng.float(0.25, 0.7), rng.int(1, 999)); }
-  for (let i = 0; i < 4; i++) { const v = B.sampleVertex(rng); if (v) FX.paintGrime(B, v.p, v.n, rng.float(0.15, 0.28), b.grime * 0.6, rng.int(1, 999)); }
-  if (F) for (let i = 0; i < 3; i++) { const v = F.sampleVertex(rng, null, (p, n) => n.z > 0.4); if (v) FX.paintDirt(F, v.p, v.n, rng.float(0.02, 0.04), dirt * 0.7, rng.int(1, 999)); }
+  for (let i = 0; i < 7; i++) { const v = sampleRegion(B, rng, rng.pick(['foot', 'calf', 'calf', 'foot'])); if (v) { FX.paintDirt(B, v.p, v.n, rng.float(0.08, 0.16), dirt * rng.float(0.6, 1), rng.int(1, 999)); await tick(); } }
+  for (let i = 0; i < 4; i++) { const v = sampleRegion(B, rng, rng.pick(['hand', 'forearm'])); if (v) { FX.paintDirt(B, v.p, v.n, rng.float(0.06, 0.12), dirt * rng.float(0.5, 0.9), rng.int(1, 999)); await tick(); } }
+  for (let i = 0; i < 6; i++) { const v = B.sampleVertex(rng); if (v) { FX.paintDirt(B, v.p, v.n, rng.float(0.05, 0.12), dirt * rng.float(0.25, 0.7), rng.int(1, 999)); await tick(); } }
+  for (let i = 0; i < 4; i++) { const v = B.sampleVertex(rng); if (v) { FX.paintGrime(B, v.p, v.n, rng.float(0.15, 0.28), b.grime * 0.6, rng.int(1, 999)); await tick(); } }
+  if (F) for (let i = 0; i < 3; i++) { const v = F.sampleVertex(rng, null, (p, n) => n.z > 0.4); if (v) { FX.paintDirt(F, v.p, v.n, rng.float(0.02, 0.04), dirt * 0.7, rng.int(1, 999)); await tick(); } }
   if (b.blood) {
     const n = rng.int(1, 3);
-    for (let i = 0; i < n; i++) { const v = sampleRegion(B, rng, rng.pick(['forearm', 'hand', 'chest', 'thigh', 'abdomen'])); if (v) FX.paintBlood(B, v.p, v.n, rng.float(0.025, 0.05), 1, rng.int(1, 999), rng); }
-    if (F && rng.chance(0.4)) { const v = F.sampleVertex(rng, null, (p, n) => n.z > 0.4); if (v) FX.paintBlood(F, v.p, v.n, 0.015, 1, rng.int(1, 99), rng); }
+    for (let i = 0; i < n; i++) { const v = sampleRegion(B, rng, rng.pick(['forearm', 'hand', 'chest', 'thigh', 'abdomen'])); if (v) { FX.paintBlood(B, v.p, v.n, rng.float(0.025, 0.05), 1, rng.int(1, 999), rng); await tick(); } }
+    if (F && rng.chance(0.4)) { const v = F.sampleVertex(rng, null, (p, n) => n.z > 0.4); if (v) { FX.paintBlood(F, v.p, v.n, 0.015, 1, rng.int(1, 99), rng); await tick(); } }
   }
   ch.applyColors({ ...ch.look, sclera: SCLERA[b.sclera] || SCLERA.normal });
   ch.surfBody.flush(); ch.surfFace?.flush();
@@ -257,20 +268,21 @@ export function measureDirt(ch) {
   return { dirt, makeup };
 }
 
-export function paintClothing(ch, spec, { washed = false } = {}) {
+export async function paintClothing(ch, spec, { washed = false } = {}) {
+  const tick = slicer();
   const rng = new RNG((spec.seed ^ 0xc10) >>> 0);
   for (const it of ch.items.values()) {
     const kind = spec.clothing[it.id] || 'none';
     for (const [matKey, tris] of it.tris) {
       const surf = ch.clothSurf.get(matKey);
       if (!surf || !tris.length) continue;
-      if (!washed) for (let i = 0; i < 4; i++) { const v = surf.sampleFromTris(rng, tris); FX.paintWear(surf, v.p, v.n, rng.float(0.12, 0.22), rng.int(1, 999), tris); }
-      const stamps = (n, fn, r0, r1) => { for (let i = 0; i < n; i++) { const v = surf.sampleFromTris(rng, tris); fn(surf, v.p, v.n, rng.float(r0, r1), rng.int(1, 999), tris); } };
-      if (kind === 'mud' && !washed) stamps(rng.int(2, 5), FX.paintMud, 0.05, 0.12);
-      if (kind === 'bio') stamps(rng.int(3, 5), FX.paintSlime, 0.05, 0.11);
-      if (kind === 'bioUV') stamps(rng.int(3, 6), FX.paintUVStain, 0.05, 0.1);
-      if (kind === 'chem') stamps(rng.int(2, 4), FX.paintChem, 0.05, 0.1);
-      if (kind === 'lice') stamps(rng.int(3, 5), FX.paintLice, 0.12, 0.2);
+      if (!washed) for (let i = 0; i < 4; i++) { const v = surf.sampleFromTris(rng, tris); { FX.paintWear(surf, v.p, v.n, rng.float(0.12, 0.22), rng.int(1, 999), tris); await tick(); } }
+      const stamps = async (n, fn, r0, r1) => { for (let i = 0; i < n; i++) { const v = surf.sampleFromTris(rng, tris); fn(surf, v.p, v.n, rng.float(r0, r1), rng.int(1, 999), tris); await tick(); } };
+      if (kind === 'mud' && !washed) await stamps(rng.int(2, 5), FX.paintMud, 0.05, 0.12);
+      if (kind === 'bio') await stamps(rng.int(3, 5), FX.paintSlime, 0.05, 0.11);
+      if (kind === 'bioUV') await stamps(rng.int(3, 6), FX.paintUVStain, 0.05, 0.1);
+      if (kind === 'chem') await stamps(rng.int(2, 4), FX.paintChem, 0.05, 0.1);
+      if (kind === 'lice') await stamps(rng.int(3, 5), FX.paintLice, 0.12, 0.2);
     }
   }
   for (const s of ch.clothSurf.values()) s.flush();
@@ -282,8 +294,8 @@ export async function buildVisitorCharacter(spec, modelsById, { lowRes = false, 
   const uwTex = new THREE.CanvasTexture(uwCanvas);
   uwTex.flipY = false; uwTex.colorSpace = THREE.SRGBColorSpace; uwTex.anisotropy = 8;
   const ch = await Character.create(M.entry, M.cfg, spec.look, { uwTexture: uwTex, lowRes, fx });
-  paintBody(ch, spec);
-  paintClothing(ch, spec);
+  await paintBody(ch, spec);
+  await paintClothing(ch, spec);
   ch.spec = spec;
   ch.animator.setPersonality(new RNG((spec.seed ^ 0xa11) >>> 0), spec.nervous || 0);
   ch.animator.vrmScaleHint = spec.scale || 1;

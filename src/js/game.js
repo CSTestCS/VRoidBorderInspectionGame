@@ -5,7 +5,7 @@ import { Player } from './player.js';
 import { audio } from './audio.js';
 import { RNG, el, clamp, damp, sleep } from './util.js';
 import { generateVisitor, buildVisitorCharacter, correctOutcome, measureDirt, paintClothing, PROBLEM_LABEL, CURRENT_YEAR } from './visitor.js';
-import { renderPortrait } from './portrait.js';
+import { renderPortrait, renderPortraitFrom } from './portrait.js';
 import { drawCardFront, drawCardBack, drawCardUV, makeCardMesh, fmtDate } from './idcard.js';
 import { patchMaterial } from './vrm/materials.js';
 import { OBJECTS } from './objects.js';
@@ -89,6 +89,7 @@ export class Game {
     this.interro?.run.ch?.dispose();
     this.run?.ch?.dispose();
     this.objectViewer?.dispose();
+    this.prepared?.done?.then((j) => j?.ch?.dispose()).catch(() => {});
     audio.loop('hose', false);
   }
 
@@ -100,6 +101,9 @@ export class Game {
     const n = count ?? (dayNumber === 1 ? rng.int(3, 4) : rng.int(3, 7));
     this.queue = preset ? preset.slice() : Array.from({ length: n }, () => generateVisitor(rng.int(1, 2 ** 31 - 1), this.models));
     this.dayTotal = this.queue.length;
+    this.prepared?.done?.then((j) => j?.ch && j.ch !== this.run?.ch && j.ch.dispose());
+    this.prepared = null;
+    this.prepareNext();
     for (const t of this.tanks) if (t) t.checkedToday = false;
     await this.loadTankCharacters();
     this.player.teleport(SPOTS.playerStart, 0, -0.05);
@@ -176,12 +180,10 @@ export class Game {
       armsUp: false, turned: false, uvUsedOnCard: false,
     };
     try {
-      const [ch, portrait] = await Promise.all([
-        buildVisitorCharacter(spec, this.modelsById),
-        renderPortrait(this.modelsById, spec.card.portrait),
-      ]);
+      const ready = await this.takePrepared(spec);
+      const ch = ready.ch;
       run.ch = ch;
-      run.portrait = portrait;
+      run.portrait = ready.portrait;
       ch.root.position.copy(SPOTS.visitorSpawn);
       ch.root.rotation.y = 0;
       ch.animator.lookTarget = this.engine.camera;
@@ -217,6 +219,64 @@ export class Game {
       this.run = null;
     }
     this.busy = false;
+  }
+
+  // ---------------------------------------------------------- preparation
+  // Visitors are built ahead of time, a little at a time, so calling one is instant.
+  prepare(spec) {
+    if (!spec) return null;
+    if (this.prepared?.spec === spec) return this.prepared;
+    const job = { spec, ch: null, portrait: null };
+    job.done = (async () => {
+      const ch = await buildVisitorCharacter(spec, this.modelsById);
+      job.ch = ch;
+      // the portrait normally shows the same model; only a false identity needs another one
+      job.portrait = spec.card.portrait.modelId === spec.modelId
+        ? renderPortraitFrom(this.engine, ch, spec.card.portrait.look)
+        : await renderPortrait(this.engine, this.modelsById, spec.card.portrait);
+      await this.warm(ch);
+      return job;
+    })();
+    job.done.catch((e) => console.error('prepare failed', e));
+    this.prepared = job;
+    return job;
+  }
+
+  async takePrepared(spec) {
+    const job = this.prepared?.spec === spec ? this.prepared : this.prepare(spec);
+    this.prepared = null;
+    await job.done;
+    return job;
+  }
+
+  prepareNext() {
+    if (!this.prepared && this.queue.length) this.prepare(this.queue[0]);
+  }
+
+  // Compile every shader variant (skinned + static carried-item twins) without
+  // blocking, then upload textures one per frame.
+  async warm(ch) {
+    const r = this.engine.renderer;
+    const twins = new THREE.Group();
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    tg.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
+    tg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(6), 2));
+    for (const it of ch.items.values()) for (const m of it.meshes) twins.add(new THREE.Mesh(tg, m.material));
+    ch.root.add(twins);
+    const prevVis = ch.root.visible;
+    try { await r.compileAsync(ch.root, this.engine.camera, this.scene); } catch (e) { console.warn('compileAsync', e); }
+    ch.root.remove(twins);
+    tg.dispose();
+    ch.root.visible = prevVis;
+    const texs = new Set();
+    ch.root.traverse((o) => {
+      if (!o.isMesh) return;
+      const m = o.material;
+      for (const k of ['map', 'normalMap', 'roughnessMap']) if (m[k]) texs.add(m[k]);
+      for (const u of Object.values(m.userData.hv || {})) if (u?.value?.isTexture) texs.add(u.value);
+    });
+    for (const t of texs) { r.initTexture(t); await new Promise((res) => requestAnimationFrame(() => res())); }
   }
 
   placeCard(run) {
@@ -384,6 +444,9 @@ export class Game {
       run.phase = 'decon';
       run.proxies = null;
       this.world.puddle.material.opacity = 0;
+      run.ch.update(1 / 30);
+      this.ensureProxies(); // build click targets while the screen is black
+      this.prepareNext();
     });
     this.emit('sentToDecon');
     this.setObjective('Go to <b>Decontamination</b>. Inspect each clothing item where it is worn, search it, remove it, and sort it into the <b>washer</b> or the <b>incinerator</b>. Press <kbd>I</kbd> to view the ID card.');
@@ -400,7 +463,7 @@ export class Game {
     const run = this.run;
     if (!run) return;
     clearTimeout(run.rebakeTimer);
-    run.rebakeTimer = setTimeout(() => { if (run.proxies) run.proxies.bake(); }, delay);
+    run.rebakeTimer = setTimeout(() => { if (run.proxies) run.proxies.bakeAsync(); }, delay);
   }
 
   removableItems() {
@@ -543,7 +606,8 @@ export class Game {
     this.player.setTool('hose');
     run.phase = 'hose';
     this.ensureProxies();
-    run.proxies.bake();
+    run.proxies.includeHair = true;
+    run.proxies.bakeAsync();
     this.emit('hoseTaken');
     this.setObjective('Hold <b>left mouse</b> to spray. Wash off all dirt, blood and anything covering the skin. <kbd>T</kbd> raise arms, <kbd>R</kbd> turn around. Put the hose back on the reel when done.');
   }
@@ -693,6 +757,7 @@ export class Game {
     run.proxies?.dispose();
     run.cardMesh?.userData.textures?.forEach((t) => t.dispose());
     if (this.run === run) this.run = null;
+    this.prepareNext();
     this.updateHUD();
     if (!this.interro) this.setObjective(this.queue.length ? 'Return to the booth and call the next visitor (<b>NEXT</b> button).' : 'All visitors processed. Check the tanks in the Medical Lab, then press <b>NEXT</b> in the booth to end your shift.');
   }

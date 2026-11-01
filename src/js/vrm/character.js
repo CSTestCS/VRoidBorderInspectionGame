@@ -21,6 +21,16 @@ function cleanedBody(modelId, image, threshold) {
   }
   return cleanedCache.get(key);
 }
+// Run the (slow, one-off) built-in underwear removal for a model ahead of time.
+export function prepareModel(loaded, cfg) {
+  for (const p of loaded.parts) {
+    const role = cfg.materials[p.key]?.role || p.role;
+    if (role !== 'bodySkin') continue;
+    const img = (p.src.map || p.src.uniforms?.map?.value)?.image;
+    if (img) cleanedBody(loaded.model.id, img, cfg.uwThreshold ?? 60);
+  }
+}
+
 export function clearCleanedCache(modelId) {
   for (const k of [...cleanedCache.keys()]) if (k.startsWith(modelId + '|')) { cleanedCache.get(k).dispose(); cleanedCache.delete(k); }
 }
@@ -95,7 +105,9 @@ export class Character {
     }) : null;
 
     const fxOn = opts.fx !== false;
+    let t0 = performance.now();
     for (const part of loaded.parts) {
+      if (performance.now() - t0 > 6) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); }
       const mc = cfg.materials[part.key] || { role: part.role, visible: true, colorSlot: 'fixed' };
       const role = mc.role || part.role;
       const mesh = part.mesh;

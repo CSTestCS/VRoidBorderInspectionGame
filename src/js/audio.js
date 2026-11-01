@@ -3,6 +3,7 @@ export class Audio {
   constructor() {
     this.ctx = null;
     this.volume = 0.8;
+    this.levels = { sfx: 1, voice: 1, water: 0.7, ambience: 0.8 };
     this.loops = {};
   }
   ensure() {
@@ -10,9 +11,18 @@ export class Audio {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     this.ctx = new AC();
-    this.master = this.ctx.createGain();
-    this.master.gain.value = this.volume;
-    this.master.connect(this.ctx.destination);
+    this.out = this.ctx.createGain();
+    this.out.gain.value = this.volume;
+    this.out.connect(this.ctx.destination);
+    // separate channels, each with its own volume
+    this.bus = {};
+    for (const k of ['sfx', 'voice', 'water', 'ambience']) {
+      const g = this.ctx.createGain();
+      g.gain.value = this.levels[k];
+      g.connect(this.out);
+      this.bus[k] = g;
+    }
+    this.master = this.bus.sfx;
     const len = this.ctx.sampleRate * 2;
     this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = this.noise.getChannelData(0);
@@ -20,7 +30,11 @@ export class Audio {
     this.startAmbience();
     return this.ctx;
   }
-  setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
+  setVolume(v) { this.volume = v; if (this.out) this.out.gain.value = v; }
+  setLevels(levels) {
+    Object.assign(this.levels, levels);
+    if (this.bus) for (const [k, g] of Object.entries(this.bus)) g.gain.value = this.levels[k];
+  }
 
   noiseSrc(loop = true) { const s = this.ctx.createBufferSource(); s.buffer = this.noise; s.loop = loop; return s; }
 
@@ -29,19 +43,21 @@ export class Audio {
     const hum = c.createOscillator(); hum.type = 'sawtooth'; hum.frequency.value = 50;
     const hf = c.createBiquadFilter(); hf.type = 'lowpass'; hf.frequency.value = 140;
     const hg = c.createGain(); hg.gain.value = 0.018;
-    hum.connect(hf).connect(hg).connect(this.master); hum.start();
+    hum.connect(hf).connect(hg).connect(this.bus.ambience); hum.start();
     const air = this.noiseSrc(); const af = c.createBiquadFilter(); af.type = 'lowpass'; af.frequency.value = 400;
     const ag = c.createGain(); ag.gain.value = 0.025;
-    air.connect(af).connect(ag).connect(this.master); air.start();
+    air.connect(af).connect(ag).connect(this.bus.ambience); air.start();
   }
 
-  loop(name, on, { freq = 1200, q = 0.7, gain = 0.25, type = 'bandpass' } = {}) {
+  loop(name, on, { freq = 1200, q = 0.7, gain = 0.25, type = 'bandpass', bus = 'sfx' } = {}) {
     if (!this.ensure()) return;
     let l = this.loops[name];
     if (on && !l) {
       const s = this.noiseSrc(); const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
       const g = this.ctx.createGain(); g.gain.value = 0;
-      s.connect(f).connect(g).connect(this.master); s.start();
+      // a gentle low-pass after the band keeps loops from sounding harsh
+      const soft = this.ctx.createBiquadFilter(); soft.type = 'lowpass'; soft.frequency.value = Math.max(800, freq * 1.6);
+      s.connect(f).connect(soft).connect(g).connect(this.bus[bus] || this.master); s.start();
       l = this.loops[name] = { s, f, g };
     }
     if (l) {
@@ -95,7 +111,7 @@ export class Audio {
       const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 600 + Math.random() * 1400; f.Q.value = 4;
       const g = c.createGain(); const d = 0.06 + Math.random() * 0.07;
       g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05, t + 0.015); g.gain.exponentialRampToValueAtTime(0.001, t + d);
-      o.connect(f).connect(g).connect(this.master); o.start(t); o.stop(t + d + 0.02);
+      o.connect(f).connect(g).connect(this.bus.voice); o.start(t); o.stop(t + d + 0.02);
       t += d + 0.025 + (Math.random() < 0.15 ? 0.12 : 0);
     }
     return t - c.currentTime;

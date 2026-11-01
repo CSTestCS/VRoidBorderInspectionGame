@@ -268,7 +268,7 @@ export class Player {
     // hose
     const spraying = tool === 'hose' && this.mouse.left && this.enabled;
     this.spraying = spraying;
-    audio.loop('hose', spraying, { freq: 1400, q: 0.5, gain: 0.22 });
+    audio.loop('hose', spraying, { freq: 900, q: 0.35, gain: 0.06, bus: 'water' });
     this.camera.updateMatrixWorld();
     const sprayDir = spraying ? this.sprayDir() : null;
     this._updateDrops(dt, spraying, sprayDir);

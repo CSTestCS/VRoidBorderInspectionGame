@@ -39,20 +39,40 @@ export class Proxies {
 
   dispose() { for (const p of this.list) { p.geometry.disposeBoundsTree?.(); p.geometry.dispose(); } this.list = []; }
 
+  // Rebuild without blocking: build the new set over several frames, then swap.
+  async bakeAsync() {
+    const old = this.list;
+    this.list = [];
+    try { await this._build(true); } catch (e) { console.warn(e); }
+    const fresh = this.list;
+    this.list = fresh.length ? fresh : old;
+    if (fresh.length) for (const p of old) { p.geometry.disposeBoundsTree?.(); p.geometry.dispose(); }
+  }
+
   bake() {
     this.dispose();
+    this._build(false);
+  }
+
+  _build(slice) {
+    const yieldIf = slice ? (() => { let t0 = performance.now(); return async () => { if (performance.now() - t0 > 6) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }; })() : null;
+    const run = async () => {
+    const list = [];
     const ch = this.ch;
     ch.root.updateMatrixWorld(true);
     for (const surf of [ch.surfBody, ch.surfFace]) {
       if (!surf) continue;
       const pos = bakePositions(surf.mesh);
       surf.setPositions('baked', pos);
-      this.list.push(proxyMesh(pos, surf.index, { kind: 'skin', surf }));
+      list.push(proxyMesh(pos, surf.index, { kind: 'skin', surf }));
+      if (yieldIf) await yieldIf();
     }
     for (const info of Object.values(ch.materialsByKey)) {
-      if (info.role !== 'hair' || !info.mesh.visible) continue;
+      // hair only matters for the hose; skipping it keeps picking cheap
+      if (!this.includeHair || info.role !== 'hair' || !info.mesh.visible) continue;
       const pos = bakePositions(info.mesh);
-      this.list.push(proxyMesh(pos, info.mesh.geometry.index.array, { kind: 'hair' }));
+      list.push(proxyMesh(pos, info.mesh.geometry.index.array, { kind: 'hair' }));
+      if (yieldIf) await yieldIf();
     }
     // clothing: bake each source mesh once, one proxy per item mesh
     const baked = new Map();
@@ -62,9 +82,19 @@ export class Proxies {
         const key = m.userData.matKey;
         const src = ch.materialsByKey[key].mesh;
         if (!baked.has(key)) baked.set(key, bakePositions(src));
-        this.list.push(proxyMesh(baked.get(key), m.geometry.index.array, { kind: 'item', itemId: it.id, mesh: m }));
+        list.push(proxyMesh(baked.get(key), m.geometry.index.array, { kind: 'item', itemId: it.id, mesh: m }));
+        if (yieldIf) await yieldIf();
       }
     }
+    this.list = list;
+    };
+    if (!slice) {
+      // synchronous path: run the async body without yielding
+      let done = false;
+      run().then(() => (done = true));
+      return null;
+    }
+    return run();
   }
 
   // nearest hit, ignoring hidden items

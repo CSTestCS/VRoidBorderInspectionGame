@@ -5,6 +5,7 @@ import { el, $, sleep } from './util.js';
 import { listAllModels, storeGet, storeSet, quit, isNative, toggleFullscreen } from './platform.js';
 import { initUnderwear } from './vrm/underwear.js';
 import { loadVRM } from './vrm/loader.js';
+import { prepareModel } from './vrm/character.js';
 import { resolveConfig } from './vrm/modelConfig.js';
 import { Game } from './game.js';
 import { Tutorial, makeTutorialVisitor } from './tutorial.js';
@@ -19,7 +20,7 @@ class App {
     this.models = [];
     this.game = null;
     this.tutorial = null;
-    this.settings = { quality: 'high', sensitivity: 1, invertY: false, volume: 0.8 };
+    this.settings = { quality: 'high', sensitivity: 1, invertY: false, volume: 0.8, sfx: 1, voice: 1, water: 0.7, ambience: 0.8 };
   }
 
   loading(text, frac) {
@@ -33,6 +34,7 @@ class App {
     this.loading('Starting…', 0.02);
     this.settings = { ...this.settings, ...((await storeGet('settings')) || {}) };
     audio.setVolume(this.settings.volume);
+    audio.setLevels({ sfx: this.settings.sfx, voice: this.settings.voice, water: this.settings.water, ambience: this.settings.ambience });
     this.engine = new Engine($('#viewport'), { quality: this.settings.quality });
     this.loading('Loading underwear catalogue…', 0.05);
     await initUnderwear();
@@ -56,6 +58,7 @@ class App {
         pre.vrm.scene.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
         const saved = this.configs[entry.id] || (entry.builtin ? this.builtinDefaults[entry.id] : null);
         const cfg = resolveConfig(entry, pre.analysis, saved);
+        prepareModel(pre, cfg);
         this.models.push({ entry, cfg, height: pre.analysis.height });
       } catch (e) {
         console.error('Model failed', entry, e);
@@ -159,6 +162,7 @@ class App {
     const save = async () => {
       await storeSet('settings', s);
       audio.setVolume(s.volume);
+      audio.setLevels({ sfx: s.sfx, voice: s.voice, water: s.water, ambience: s.ambience });
       if (this.game) { this.game.player.sensitivity = s.sensitivity; this.game.player.invertY = s.invertY; }
     };
     const row = (label, input) => el('div', { class: 'ws-field', style: { gridTemplateColumns: '170px 1fr' } }, el('label', {}, label), input);
@@ -167,7 +171,11 @@ class App {
         ['low', 'medium', 'high'].map((q) => el('option', { value: q, selected: s.quality === q }, q)))),
       row('Mouse sensitivity', el('input', { type: 'range', min: 0.2, max: 3, step: 0.05, value: s.sensitivity, oninput: (e) => { s.sensitivity = Number(e.target.value); save(); } })),
       row('Invert mouse Y', el('input', { type: 'checkbox', checked: s.invertY, onchange: (e) => { s.invertY = e.target.checked; save(); } })),
-      row('Volume', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.volume, oninput: (e) => { s.volume = Number(e.target.value); save(); } })),
+      row('Master volume', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.volume, oninput: (e) => { s.volume = Number(e.target.value); save(); } })),
+      row('Effects', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.sfx, oninput: (e) => { s.sfx = Number(e.target.value); save(); } })),
+      row('Voices', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.voice, oninput: (e) => { s.voice = Number(e.target.value); save(); } })),
+      row('Water / hose', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.water, oninput: (e) => { s.water = Number(e.target.value); save(); } })),
+      row('Ambience', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.ambience, oninput: (e) => { s.ambience = Number(e.target.value); save(); } })),
       row('Fullscreen', el('button', { onclick: () => toggleFullscreen() }, 'Toggle (F11)')),
       el('div', { class: 'row' }, el('button', { onclick: () => m.close() }, 'Close'))), { title: 'Settings' });
   }
