@@ -99,7 +99,7 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
 `;
       lightCode = `
   #ifdef USE_CLEARCOAT
-  material.clearcoat = hvWet * 0.85;
+  material.clearcoat = hvWet * 0.6;
   material.clearcoatRoughness = 0.12;
   #endif
 `;
@@ -177,7 +177,7 @@ export function convertMaterial(src, role) {
   switch (role) {
     case 'bodySkin':
     case 'faceSkin':
-      m = new THREE.MeshPhysicalMaterial({ ...base, roughness: 0.58, metalness: 0, sheen: 0.35, sheenRoughness: 0.6, sheenColor: new THREE.Color(0.9, 0.45, 0.4), clearcoat: 0.01, clearcoatRoughness: 0.2 });
+      m = new THREE.MeshPhysicalMaterial({ ...base, roughness: 0.58, metalness: 0, sheen: 0.2, sheenRoughness: 0.6, sheenColor: new THREE.Color(0.9, 0.45, 0.4), clearcoat: 0.01, clearcoatRoughness: 0.2 });
       m.side = THREE.FrontSide;
       break;
     case 'hair':

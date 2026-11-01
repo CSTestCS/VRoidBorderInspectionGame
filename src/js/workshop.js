@@ -93,7 +93,7 @@ export class Workshop {
       el('button', { class: 'primary', onclick: () => this.importNew() }, 'Import .vrm…'),
       el('button', { onclick: () => this.leave() }, 'Back')));
     for (const m of this.models) {
-      const cfg = this.app.configs[m.id];
+      const cfg = this.app.configs[m.id] || this.app.models.find((x) => x.entry.id === m.id)?.cfg;
       this.list.append(el('div', { class: 'ws-model' + (this.current?.id === m.id ? ' active' : ''), onclick: () => this.select(m.id) },
         cfg?.name || m.name, el('small', {}, `${m.builtin ? 'Built-in' : 'Imported'} · ${cfg ? `${cfg.sex}, ${cfg.age}` : 'not configured'}${cfg && cfg.enabled === false ? ' · disabled' : ''}`)));
     }
@@ -119,7 +119,7 @@ export class Workshop {
       const pre = await loadVRM(entry);
       pre.vrm.scene.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
       this.analysis = pre.analysis;
-      this.cfg = JSON.parse(JSON.stringify(resolveConfig(entry, pre.analysis, this.app.configs[id])));
+      this.cfg = JSON.parse(JSON.stringify(resolveConfig(entry, pre.analysis, this.app.configs[id] || (entry.builtin ? this.app.builtinDefaults?.[id] : null))));
       await this.rebuild();
       this.renderPanel();
       this.refreshList();
@@ -207,7 +207,7 @@ export class Workshop {
     const sel = (opts, value, onchange) => el('select', { onchange: (e) => { onchange(e.target.value); } }, opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
     this.saveBtn = el('button', { class: 'primary', disabled: !this.dirty, onclick: () => this.save() }, 'Save configuration');
     P.append(el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, this.saveBtn,
-      el('button', { onclick: async () => { if (await this.ui.confirm('Reset', 'Reset this model to automatic defaults?', 'Reset')) { delete this.app.configs[this.current.id]; this.cfg = JSON.parse(JSON.stringify(resolveConfig(this.current, this.analysis, null))); this.markDirty(); await this.rebuild(); this.renderPanel(); } } }, 'Reset to defaults'),
+      el('button', { onclick: async () => { if (await this.ui.confirm('Reset', 'Reset this model to automatic defaults?', 'Reset')) { delete this.app.configs[this.current.id]; this.cfg = JSON.parse(JSON.stringify(resolveConfig(this.current, this.analysis, this.current.builtin ? this.app.builtinDefaults?.[this.current.id] : null))); this.markDirty(); await this.rebuild(); this.renderPanel(); } } }, 'Reset to defaults'),
       !this.current.builtin ? el('button', { class: 'danger', onclick: () => this.remove() }, 'Delete model') : null));
 
     P.append(el('h3', {}, 'Model'));
