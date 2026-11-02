@@ -97,14 +97,14 @@ export async function renderPortraitFrom(engine, ch, portraitLook) {
   await precompile(engine, ch);
   const saved = { look: ch.look, pose: ch.animator.pose };
   ch.applyColors({ ...portraitLook, scale: ch.look.scale, sclera: SCLERA.normal });
-  ch.setLayers({ cond: 0, fx: 0 });
+  ch.setLayers({ cond: 0, fx: 0, overlay: 0 }); // pre-collapse photo: no dirt on skin or clothes
   const closed = ch.face.eyesClosed;
   ch.face.eyesClosed = 0;
   ch.animator.setPose('idle', true);
   ch.update(1 / 60);
   const img = snap(engine, ch);
   ch.applyColors(saved.look);
-  ch.setLayers({ cond: 1, fx: 1 });
+  ch.setLayers({ cond: 1, fx: 1, overlay: 1 });
   ch.face.eyesClosed = closed;
   ch.animator.setPose(saved.pose, true);
   return img;
