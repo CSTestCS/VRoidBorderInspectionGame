@@ -45,7 +45,7 @@ export function randomPremade(models, rng = new RNG((Math.random() * 1e9) | 0)) 
       skin: rng.weighted(SKIN_TONES), hair: hairE.rgb, eye: eyeE.rgb,
       slots: { A: clothColor(rng, 'top'), B: clothColor(rng, 'bottom'), C: clothColor(rng, 'top'), D: clothColor(rng, 'shoes'), dark: clothColor(rng, 'shoes').map((x) => x * 0.6), light: [0.86, 0.86, 0.83] },
     },
-    voice: { pitch: Math.round(v.pitch), rate: +v.rate.toFixed(2), breath: +v.breath.toFixed(2), rasp: +v.rasp.toFixed(2), formant: +v.formant.toFixed(2) },
+    voice: { pitch: Math.round(v.pitch), rate: +v.rate.toFixed(2), breath: +v.breath.toFixed(2), rasp: +v.rasp.toFixed(2), formant: +v.formant.toFixed(2), shrill: +v.shrill.toFixed(2) },
     personality: rng.pick(Object.keys(PERSONALITIES)),
     hidden: [],
   };
@@ -297,6 +297,7 @@ export class CharacterCreator {
     P.append(field('Speed', slider(0.7, 1.4, 0.01, V.rate, (v) => v.toFixed(2) + '×', (v) => { V.rate = v; this.markDirty(); })));
     P.append(field('Breathiness', slider(0, 0.4, 0.01, V.breath, (v) => v.toFixed(2), (v) => { V.breath = v; this.markDirty(); })));
     P.append(field('Raspiness', slider(0, 0.6, 0.01, V.rasp, (v) => v.toFixed(2), (v) => { V.rasp = v; this.markDirty(); })));
+    P.append(field('Shrillness', slider(0, 1, 0.01, V.shrill ?? 0, (v) => (v < 0.05 ? 'none' : v.toFixed(2)), (v) => { V.shrill = v; this.markDirty(); })));
     P.append(el('button', { onclick: () => this.previewVoice() }, 'Hear voice'));
 
     P.append(el('h3', {}, 'Clothing'));

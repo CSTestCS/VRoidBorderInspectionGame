@@ -107,19 +107,22 @@ export function makeVoiceProfile(seed, sex = 'female', age = 'adult') {
     breath: rng.float(0.04, 0.16) + (female ? 0.04 : 0) + (age === 'old' ? 0.04 : 0),
     rasp: rng.float(0.0, 0.25) + (age === 'old' ? 0.25 : 0),
     range: rng.float(0.08, 0.2) * (female ? 1.4 : 1),
+    shrill: female ? rng.float(0, 0.3) * (age === 'young' ? 1 : 0.4) : rng.float(0, 0.08),
     female, age,
     seed,
   };
 }
 
-let glottalWave = null;
-function getGlottal(ctx) {
-  if (glottalWave) return glottalWave;
-  // harmonics falling ~ -12 dB/octave, like a real glottal pulse
+const glottalWaves = new Map();
+// tilt: how fast the harmonics fall off (~ -12 dB/octave like a real glottal pulse; shrill voices less)
+function getGlottal(ctx, tilt = 1.3) {
+  const key = ctx.sampleRate + ':' + tilt.toFixed(2);
+  if (glottalWaves.has(key) && glottalWaves.get(key).ctx === ctx) return glottalWaves.get(key).w;
   const N = 48, re = new Float32Array(N), im = new Float32Array(N);
-  for (let n = 1; n < N; n++) { im[n] = Math.pow(n, -1.3) * (n % 2 ? 1 : 0.9); }
-  glottalWave = ctx.createPeriodicWave(re, im, { disableNormalization: false });
-  return glottalWave;
+  for (let n = 1; n < N; n++) { im[n] = Math.pow(n, -tilt) * (n % 2 ? 1 : 0.9); }
+  const w = ctx.createPeriodicWave(re, im, { disableNormalization: false });
+  glottalWaves.set(key, { ctx, w });
+  return w;
 }
 
 function wordsOf(text) {
@@ -187,6 +190,8 @@ function babbleSegs(text, P, rate, emoPitch, rng) {
 // Schedules an utterance. opts: { profile, emotion, radio, pan, bus }
 export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   const P = opts.profile || makeVoiceProfile(1);
+  // shrillness (0..1): brighter source, higher/narrower resonances, less chest
+  const sh = Math.max(0, Math.min(1, P.shrill || 0));
   const rng = new RNG(((Math.random() * 1e9) | 0) ^ P.seed);
   const emo = opts.emotion || 'neutral';
   const emoPitch = { happy: 1.1, angry: 1.05, sad: 0.9, surprised: 1.18, scared: 1.15, neutral: 1 }[emo] || 1;
@@ -199,9 +204,9 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   // ---- audio graph ----
   const out = ctx.createGain(); out.gain.value = 0.9;
   // tame the upper mids (where a formant synth turns nasal / heady) and the hiss above
-  const warm = ctx.createBiquadFilter(); warm.type = 'peaking'; warm.frequency.value = 3600; warm.Q.value = 1.2; warm.gain.value = -1.5;
+  const warm = ctx.createBiquadFilter(); warm.type = 'peaking'; warm.frequency.value = 3600; warm.Q.value = 1.2; warm.gain.value = -1.5 + 7.5 * sh;
   const air = ctx.createBiquadFilter(); air.type = 'lowpass'; air.frequency.value = 9000; air.Q.value = 0.5;
-  const chest = ctx.createBiquadFilter(); chest.type = 'lowshelf'; chest.frequency.value = 300; chest.gain.value = 1;
+  const chest = ctx.createBiquadFilter(); chest.type = 'lowshelf'; chest.frequency.value = 300; chest.gain.value = 1 - 5 * sh;
   out.connect(warm).connect(air).connect(chest);
   let tail = chest;
   if (opts.radio) {
@@ -219,9 +224,10 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   }
   tail.connect(destination);
 
-  const fs = P.formant;
+  const fs = P.formant * (1 + 0.12 * sh);
+  const QD = [100, 130, 180].map((q) => q / (1 + 0.5 * sh));
   const src = ctx.createOscillator();
-  src.setPeriodicWave(getGlottal(ctx));
+  src.setPeriodicWave(getGlottal(ctx, Math.round((1.3 - 0.45 * sh) * 20) / 20));
   const voiced = ctx.createGain(); voiced.gain.value = 0;
   src.connect(voiced);
   // vibrato + jitter (rasp)
@@ -242,7 +248,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   const crisp = ctx.createBiquadFilter(); crisp.type = 'highshelf'; crisp.frequency.value = 3500; crisp.gain.value = 4;
   nz.connect(fricF).connect(fric).connect(crisp).connect(chest);
   // formant bank
-  const FG = [1.0, 1.7, 1.15], Fg = [];
+  const FG = [1.0, 1.7 * (1 + 0.7 * sh), 1.15 * (1 + 1.4 * sh)], Fg = [];
   const F = [0, 1, 2].map((k) => {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
     const g = ctx.createGain(); g.gain.value = FG[k]; Fg.push(g);
@@ -251,7 +257,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   });
   // a little low-passed direct sound for body/warmth
   const body = ctx.createBiquadFilter(); body.type = 'lowpass'; body.frequency.value = 750 * fs;
-  const bodyG = ctx.createGain(); bodyG.gain.value = 0.05;
+  const bodyG = ctx.createGain(); bodyG.gain.value = 0.05 * (1 - sh);
   voiced.connect(body).connect(bodyG).connect(out);
 
   // Every change is anchored at its own start time. (A bare linearRamp starts from the
@@ -262,9 +268,11 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   });
   const v0 = (segs.find((s) => s.kind === 'vowel') || { F: VOWELS['@'] }).F;
   const VG = track(voiced.gain, 0), AG = track(asp.gain, 0), FR = track(fric.gain, 0);
-  const FF = F.map((bp, k) => { bp.frequency.setValueAtTime(v0[k] * fs, t0); bp.Q.setValueAtTime(v0[k] * fs / [100, 130, 180][k], t0); return track(bp.frequency, v0[k] * fs); });
+  const FF = F.map((bp, k) => { bp.frequency.setValueAtTime(v0[k] * fs, t0); bp.Q.setValueAtTime(v0[k] * fs / QD[k], t0); return track(bp.frequency, v0[k] * fs); });
   const UG = Fg.map((g, k) => track(g.gain, FG[k]));
-  const setF = (vals, at, glide) => vals.forEach((hz, k) => { FF[k].to(hz * fs, at, glide); F[k].Q.setValueAtTime(hz * fs / [100, 130, 180][k], Math.max(at, FF[k].t - glide)); });
+  const setF = (vals, at, glide) => vals.forEach((hz, k) => { FF[k].to(hz * fs, at, glide); F[k].Q.setValueAtTime(hz * fs / QD[k], Math.max(at, FF[k].t - glide)); });
+  // high voices lift the first resonance above the pitch (otherwise vowels turn hollow / heady)
+  const tune = (vals, f0) => [Math.max(vals[0], (f0 * 1.15) / fs), vals[1], vals[2]];
   // nasals: the upper formants are damped (the nose absorbs them), vowels restore them
   const upper = (k1, k2, at, glide = 0.012) => { UG[1].to(FG[1] * k1, at, glide); UG[2].to(FG[2] * k2, at, glide); };
   src.frequency.setValueAtTime(P.pitch * emoPitch, t0);
@@ -292,8 +300,8 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
       VG.to(lvl, a + vot, 0.014);
       VG.to(lvl * (s.last ? 0.3 : 0.88), a + vot + 0.014, Math.max(0.01, s.d - vot - 0.014));
       AG.to(breath * lvl * 0.22, a + vot, 0.02);
-      if (s.F2) { setF(s.F, a, Math.min(0.03, s.d * 0.3)); setF(s.F2, a + s.d * 0.4, s.d * 0.45); }
-      else setF(s.F, a, Math.min(0.03, s.d * 0.35));
+      if (s.F2) { setF(tune(s.F, s.f0), a, Math.min(0.03, s.d * 0.3)); setF(tune(s.F2, s.f0), a + s.d * 0.4, s.d * 0.45); }
+      else setF(tune(s.F, s.f0), a, Math.min(0.03, s.d * 0.35));
       src.frequency.linearRampToValueAtTime(s.f0, a + s.d * 0.5);
       syllables.push({ t: s.t, d: s.d, v: s.vis, w: s.reduced ? 0.3 : 0.35 + 0.55 * (s.stress ? 1 : 0.7) });
       continue;
