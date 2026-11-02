@@ -26,7 +26,7 @@ const PC = {
   M: { t: 'nasal', F: [280, 950, 2200] }, N: { t: 'nasal', F: [280, 1700, 2600] }, NG: { t: 'nasal', F: [280, 2100, 2700] },
   L: { t: 'liquid', F: [360, 1000, 2400] }, R: { t: 'liquid', F: [420, 1250, 1550] }, W: { t: 'liquid', F: [300, 620, 2200] }, Y: { t: 'liquid', F: [280, 2250, 2900] },
 };
-const PDUR = { plosive: 0.07, affric: 0.1, fric: 0.09, h: 0.05, nasal: 0.065, liquid: 0.055 };
+const PDUR = { plosive: 0.075, affric: 0.1, fric: 0.1, h: 0.05, nasal: 0.06, liquid: 0.055 };
 
 function wordSegs(text, P, rate, emoPitch, rng) {
   const words = textToPhonemes(text);
@@ -239,9 +239,10 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   const crisp = ctx.createBiquadFilter(); crisp.type = 'highshelf'; crisp.frequency.value = 3500; crisp.gain.value = 4;
   nz.connect(fricF).connect(fric).connect(crisp).connect(chest);
   // formant bank
+  const FG = [1.0, 1.7, 1.15], Fg = [];
   const F = [0, 1, 2].map((k) => {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
-    const g = ctx.createGain(); g.gain.value = [1.0, 1.7, 1.15][k];
+    const g = ctx.createGain(); g.gain.value = FG[k]; Fg.push(g);
     voiced.connect(bp); asp.connect(bp); bp.connect(g).connect(out);
     return bp;
   });
@@ -250,80 +251,90 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   const bodyG = ctx.createGain(); bodyG.gain.value = 0.05;
   voiced.connect(body).connect(bodyG).connect(out);
 
-  const setF = (vals, at, glide) => {
-    vals.forEach((hz, k) => {
-      const f = hz * fs;
-      F[k].frequency.linearRampToValueAtTime(f, at + glide);
-      F[k].Q.setValueAtTime(f / [100, 130, 180][k], at);
-    });
-  };
-  // initial state
+  // Every change is anchored at its own start time. (A bare linearRamp starts from the
+  // previous event, which smeared each transition across the whole previous sound.)
+  const track = (param, v) => ({
+    v, t: 0,
+    to(val, at, dur) { at = Math.max(at, this.t); param.setValueAtTime(this.v, at); param.linearRampToValueAtTime(val, at + Math.max(0.002, dur)); this.v = val; this.t = at + Math.max(0.002, dur); },
+  });
   const v0 = (segs.find((s) => s.kind === 'vowel') || { F: VOWELS['@'] }).F;
-  v0.forEach((hz, k) => { F[k].frequency.setValueAtTime(hz * fs, t0); F[k].Q.setValueAtTime(hz * fs / [100, 130, 180][k], t0); });
+  const VG = track(voiced.gain, 0), AG = track(asp.gain, 0), FR = track(fric.gain, 0);
+  const FF = F.map((bp, k) => { bp.frequency.setValueAtTime(v0[k] * fs, t0); bp.Q.setValueAtTime(v0[k] * fs / [100, 130, 180][k], t0); return track(bp.frequency, v0[k] * fs); });
+  const UG = Fg.map((g, k) => track(g.gain, FG[k]));
+  const setF = (vals, at, glide) => vals.forEach((hz, k) => { FF[k].to(hz * fs, at, glide); F[k].Q.setValueAtTime(hz * fs / [100, 130, 180][k], Math.max(at, FF[k].t - glide)); });
+  // nasals: the upper formants are damped (the nose absorbs them), vowels restore them
+  const upper = (k1, k2, at, glide = 0.012) => { UG[1].to(FG[1] * k1, at, glide); UG[2].to(FG[2] * k2, at, glide); };
   src.frequency.setValueAtTime(P.pitch * emoPitch, t0);
   fricF.frequency.setValueAtTime(4000, t0);
   const amp = (opts.emotion === 'angry' || exclaim) ? 1.15 : opts.emotion === 'sad' ? 0.8 : 1;
   const breath = P.breath;
   const syllables = [];
 
+  let prev = null;
   for (const s of segs) {
     const a = t0 + s.t, e = a + s.d;
+    const after = prev; prev = s;
     if (s.kind === 'pause') {
-      voiced.gain.linearRampToValueAtTime(0, a + 0.03);
-      asp.gain.linearRampToValueAtTime(breath * 0.02, a + 0.05);
-      asp.gain.linearRampToValueAtTime(0, e);
+      VG.to(0, a, 0.03);
+      AG.to(breath * 0.02, a, 0.04);
+      AG.to(0, a + 0.04, Math.max(0.01, s.d - 0.04));
       continue;
     }
     if (s.kind === 'vowel') {
       const lvl = (s.reduced ? 0.45 : 0.55 + 0.45 * s.stress) * amp;
-      voiced.gain.linearRampToValueAtTime(lvl, a + 0.018);
-      voiced.gain.linearRampToValueAtTime(lvl * (s.last ? 0.25 : 0.85), e);
-      asp.gain.linearRampToValueAtTime(breath * lvl * 0.22, a + 0.02);
-      if (s.F2) { setF(s.F, a, Math.min(0.035, s.d * 0.3)); setF(s.F2, e - s.d * 0.15, s.d * 0.0); }
-      else setF(s.F, a, Math.min(0.045, s.d * 0.45));
+      // after p/t/k the voice starts late (aspiration first): the main cue that tells p from b
+      const vot = after?.kind === 'cons' && after.cons.t === 'plosive' && !after.cons.v ? Math.min(0.035, s.d * 0.3) : 0;
+      upper(1, 1, a);
+      if (vot) VG.to(0, a, 0.002);
+      VG.to(lvl, a + vot, 0.014);
+      VG.to(lvl * (s.last ? 0.3 : 0.88), a + vot + 0.014, Math.max(0.01, s.d - vot - 0.014));
+      AG.to(breath * lvl * 0.22, a + vot, 0.02);
+      if (s.F2) { setF(s.F, a, Math.min(0.03, s.d * 0.3)); setF(s.F2, a + s.d * 0.4, s.d * 0.45); }
+      else setF(s.F, a, Math.min(0.03, s.d * 0.35));
       src.frequency.linearRampToValueAtTime(s.f0, a + s.d * 0.5);
       syllables.push({ t: s.t, d: s.d, v: s.vis, w: s.reduced ? 0.3 : 0.35 + 0.55 * (s.stress ? 1 : 0.7) });
       continue;
     }
     const c = s.cons;
-    if (c.loc) setF(c.loc, a, s.d * 0.5); // formant transition toward the consonant
+    if (c.loc) setF(c.loc, a, Math.min(0.025, s.d * 0.4)); // formant transition toward the consonant
     if (c.t === 'plosive' || c.t === 'affric') {
       // closure (near silence, a voice bar for voiced stops), then a burst / frication
-      const rel = c.t === 'affric' ? a + s.d * 0.45 : e - 0.018;
-      voiced.gain.linearRampToValueAtTime(c.v ? 0.12 : 0, a + 0.012);
-      asp.gain.linearRampToValueAtTime(0, a + 0.012);
-      fricF.frequency.setValueAtTime(c.f, rel - 0.002);
-      fricF.Q.setValueAtTime(c.t === 'affric' ? 2 : 1.6, rel - 0.002);
-      fric.gain.setValueAtTime(0, rel - 0.002);
-      if (c.t === 'affric') { fric.gain.linearRampToValueAtTime(0.26 * amp, rel + 0.008); fric.gain.linearRampToValueAtTime(0, e); }
+      VG.to(c.v ? 0.05 : 0, a, 0.01);
+      AG.to(0, a, 0.01);
+      const rel = c.t === 'affric' ? a + s.d * 0.4 : e - 0.016;
+      fricF.frequency.setValueAtTime(c.f, rel);
+      fricF.Q.setValueAtTime(c.t === 'affric' ? 2 : 1.6, rel);
+      if (c.t === 'affric') { FR.to(0.28 * amp, rel, 0.006); FR.to(0, e - 0.01, 0.01); }
       else {
-        fric.gain.linearRampToValueAtTime((c.v ? 0.26 : 0.42) * amp, rel + 0.004);
-        fric.gain.linearRampToValueAtTime(0, e + 0.008);
+        FR.to((c.v ? 0.26 : 0.42) * amp, rel, 0.003);
+        FR.to(0, rel + 0.005, 0.016);
         // voiceless stops are aspirated going into the vowel
-        if (!c.v) { asp.gain.setValueAtTime(0, e); asp.gain.linearRampToValueAtTime(0.14 * amp, e + 0.006); }
+        if (!c.v) AG.to(0.14 * amp, e - 0.004, 0.004);
       }
     } else if (c.t === 'fric') {
-      voiced.gain.linearRampToValueAtTime(c.v ? 0.22 : 0, a + 0.02);
-      asp.gain.linearRampToValueAtTime(0, a + 0.02);
+      const g = (c.g ?? 0.16) * 1.3 * amp;
+      VG.to(c.v ? 0.2 : 0, a, 0.012);
+      AG.to(0, a, 0.012);
       fricF.frequency.setValueAtTime(c.f, a);
       fricF.Q.setValueAtTime(c.q ?? 2.2, a);
-      fric.gain.linearRampToValueAtTime((c.g ?? 0.16) * 1.3 * amp, a + 0.015);
-      fric.gain.linearRampToValueAtTime(0, e);
+      FR.to(g, a, 0.01);
+      FR.to(0, e - 0.01, 0.01);
     } else if (c.t === 'h') {
-      voiced.gain.linearRampToValueAtTime(0, a + 0.015);
-      asp.gain.linearRampToValueAtTime(0.22 * amp, a + 0.02);
-      asp.gain.linearRampToValueAtTime(breath * 0.1, e);
+      VG.to(0, a, 0.012);
+      AG.to(0.22 * amp, a, 0.015);
     } else if (c.t === 'nasal') {
-      voiced.gain.linearRampToValueAtTime(0.32 * amp, a + 0.015);
-      setF(c.F || [280, 1300, 2500], a, 0.02);
+      VG.to(0.08 * amp, a, 0.01);
+      upper(0.35, 0.25, a);
+      setF(c.F || [280, 1300, 2500], a, 0.012);
     } else { // liquid / glide
-      voiced.gain.linearRampToValueAtTime(0.5 * amp, a + 0.015);
-      setF(c.F || [380, rng.pick([1000, 1250, 2100]), 2400], a, s.d * 0.6);
+      VG.to(0.2 * amp, a, 0.015);
+      upper(0.75, 0.6, a);
+      setF(c.F || [380, rng.pick([1000, 1250, 2100]), 2400], a, s.d * 0.5);
     }
   }
   const end = t0 + T;
-  voiced.gain.linearRampToValueAtTime(0, end);
-  asp.gain.linearRampToValueAtTime(0, end);
+  VG.to(0, Math.max(VG.t, end - 0.04), 0.04);
+  AG.to(0, Math.max(AG.t, end - 0.04), 0.04);
   for (const n of [src, vib, jit, nz]) { n.start(t0); n.stop(end + 0.1); }
   let stopped = false;
   src.onended = () => { try { out.disconnect(); chest.disconnect(); } catch {} };
