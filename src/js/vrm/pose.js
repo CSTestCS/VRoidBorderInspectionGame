@@ -195,7 +195,7 @@ export async function loadWalkClips(base = '../assets/anim/') {
     } catch (e) { console.warn('walk clip', k, e); }
   }
 }
-const _qc = new THREE.Quaternion(), _qd = new THREE.Quaternion();
+const _qClip = new THREE.Quaternion(), _qd = new THREE.Quaternion();
 function sampleClip(c, bone, u, out) {
   const a = c.q[bone];
   if (!a) return null;
@@ -403,13 +403,13 @@ export class Animator {
   _applyClip(clip) {
     const w = this.walkW;
     for (const [n, node] of Object.entries(this.bones)) {
-      if (!sampleClip(clip, n, this.walkU, _qc)) continue;
+      if (!sampleClip(clip, n, this.walkU, _qClip)) continue;
       // head and neck keep most of their look-at / idle motion
       const k = n === 'head' || n === 'neck' ? w * 0.35 : w;
-      node.quaternion.slerp(_qc, k);
+      node.quaternion.slerp(_qClip, k);
     }
     // models without an upper chest bone get its motion folded into the chest
-    if (!this.bones.upperChest && this.bones.chest && sampleClip(clip, 'upperChest', this.walkU, _qc)) this.bones.chest.quaternion.multiply(_qd.identity().slerp(_qc, w));
+    if (!this.bones.upperChest && this.bones.chest && sampleClip(clip, 'upperChest', this.walkU, _qClip)) this.bones.chest.quaternion.multiply(_qd.identity().slerp(_qClip, w));
   }
 
   _localToWorldFrom(boneName, off, out) {
