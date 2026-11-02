@@ -8,6 +8,7 @@ import { chooseUnderwear, composeUnderwear } from './vrm/underwear.js';
 import { Character } from './vrm/character.js';
 import { removableItems } from './vrm/modelConfig.js';
 import * as FX from './vrm/fx.js';
+import { PERSONALITIES } from './creator.js';
 
 export const CURRENT_YEAR = 2058;
 
@@ -78,16 +79,28 @@ function ageRange(age) { return age === 'old' ? [58, 79] : age === 'adult' ? [30
 export function generateVisitor(seed, models, opts = {}) {
   const rng = new RNG(seed);
   const enabled = models.filter((m) => m.cfg.enabled !== false);
-  const M = opts.modelId ? enabled.find((m) => m.entry.id === opts.modelId) || enabled[0] : rng.pick(enabled);
+  const pm = opts.premade || null;
+  const modelId = pm?.modelId || opts.modelId;
+  const M = modelId ? enabled.find((m) => m.entry.id === modelId) || enabled[0] : rng.pick(enabled);
   const cfg = M.cfg;
   const sex = cfg.sex;
   const problems = new Set(opts.problems || rollProblems(rng));
-  const scale = rng.float(0.95, 1.05);
+  let scale = rng.float(0.95, 1.05);
+  if (pm?.heightCm) scale = pm.heightCm / (M.height * 100);
   const heightCm = Math.round(M.height * scale * 100);
   const look = { ...lookFor(rng, sex, cfg.age), slots: clothSlots(rng, cfg), scale };
+  if (pm) {
+    // the player's choices; names for the ID card come from the nearest palette colour
+    Object.assign(look, { skin: pm.look.skin, hair: pm.look.hair, eye: pm.look.eye, slots: { ...look.slots, ...pm.look.slots } });
+    if (pm.look.eyeName) look.eyeName = pm.look.eyeName;
+    if (pm.look.hairName) look.hairName = pm.look.hairName;
+    let bi = 0, bd = 1e9;
+    SKIN_TONES.forEach(([c], i) => { const d = Math.abs(c[0] - look.skin[0]) + Math.abs(c[1] - look.skin[1]) + Math.abs(c[2] - look.skin[2]); if (d < bd) { bd = d; bi = i; } });
+    look.skinIdx = bi;
+  }
   const underwear = chooseUnderwear(rng, sex);
-  const first = rng.pick(sex === 'male' ? FIRST_M : FIRST_F);
-  const last = rng.pick(LAST);
+  const first = pm?.first || rng.pick(sex === 'male' ? FIRST_M : FIRST_F);
+  const last = pm?.last || rng.pick(LAST);
   const [a0, a1] = ageRange(cfg.age);
   const age = rng.int(a0, a1);
   const dob = dateStr(CURRENT_YEAR - age - (rng.chance(0.5) ? 1 : 0), rng.int(1, 12), rng.int(1, 28));
@@ -103,20 +116,35 @@ export function generateVisitor(seed, models, opts = {}) {
   const details = {};
 
   if (problems.has('invalidPortrait')) {
+    // how the portrait is wrong: one colour that doesn't match the face in front of you,
+    // another model wearing the visitor's colours, or (rarely) a different person entirely
     const sameSex = enabled.filter((m) => m.cfg.sex === sex && m.entry.id !== M.entry.id);
-    const variant = sameSex.length && rng.chance(0.6) ? 'model' : 'look';
-    const fakeLook = { ...lookFor(rng, sex, cfg.age), slots: clothSlots(rng, cfg) };
-    // make sure the fake look is visibly different
-    if (variant === 'look') {
-      let idx = (look.skinIdx + (rng.chance(0.5) ? 3 : -3) + SKIN_TONES.length) % SKIN_TONES.length;
-      fakeLook.skin = SKIN_TONES[idx][0];
-      let tries = 0;
-      while (Math.abs(fakeLook.hair[0] - look.hair[0]) + Math.abs(fakeLook.hair[1] - look.hair[1]) < 0.25 && tries++ < 20) {
-        const h = pickW(rng, HAIR_NATURAL.concat(HAIR_DYED));
-        fakeLook.hair = h.rgb; fakeLook.hairName = h.name;
-      }
+    const variant = rng.weighted([['hair', 3], ['skin', 3], ['eyes', 2.5], ...(sameSex.length ? [['model', 3], ['person', 1]] : [])]);
+    const pl = { ...look, sclera: SCLERA.normal };
+    let modelId = M.entry.id;
+    const far = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    if (variant === 'hair') {
+      let h, tries = 0;
+      do { h = pickW(rng, HAIR_NATURAL.concat(HAIR_DYED, HAIR_OLD)); } while ((far(h.rgb, look.hair) < 0.55 || h.name === look.hairName) && tries++ < 40);
+      pl.hair = h.rgb; pl.hairName = h.name;
+    } else if (variant === 'skin') {
+      const n = SKIN_TONES.length;
+      const idx = look.skinIdx < n / 2 ? Math.min(n - 1, look.skinIdx + rng.int(3, 4)) : Math.max(0, look.skinIdx - rng.int(3, 4));
+      pl.skin = SKIN_TONES[idx][0]; pl.skinIdx = idx;
+    } else if (variant === 'eyes') {
+      let e, tries = 0;
+      do { e = pickW(rng, EYE_COLORS); } while ((far(e.rgb, look.eye) < 0.45 || e.name === look.eyeName) && tries++ < 40);
+      pl.eye = e.rgb; pl.eyeName = e.name;
+    } else if (variant === 'model') {
+      const other = rng.pick(sameSex);
+      modelId = other.entry.id;
+      pl.slots = clothSlots(rng, other.cfg);
+    } else {
+      const other = rng.pick(sameSex);
+      modelId = other.entry.id;
+      Object.assign(pl, lookFor(rng, sex, other.cfg.age), { slots: clothSlots(rng, other.cfg), sclera: SCLERA.normal });
     }
-    card.portrait = { modelId: variant === 'model' ? rng.pick(sameSex).entry.id : M.entry.id, look: { ...fakeLook, sclera: SCLERA.normal } };
+    card.portrait = { modelId, look: pl };
     details.portrait = variant;
   }
   if (problems.has('invalidName')) {
@@ -136,7 +164,7 @@ export function generateVisitor(seed, models, opts = {}) {
   if (problems.has('forgedSeal')) { card.seal = rng.pick(['missing', 'star5', 'misspelled', 'idmismatch']); details.seal = card.seal; }
 
   // pockets
-  const items = removableItems(cfg);
+  const items = removableItems(cfg).filter((it) => !(pm?.hidden || []).includes(it.id));
   const pocketItems = items.filter((i) => i.pockets);
   const anyItems = pocketItems.length ? pocketItems : items;
   const pockets = {};
@@ -194,6 +222,7 @@ export function generateVisitor(seed, models, opts = {}) {
     id: 'v' + seed.toString(36), seed, modelId: M.entry.id, sex, age: cfg.age, scale, heightCm, look, underwear,
     identity, card, answers, details, problems: [...problems], pockets, clothing, body,
     interrogation: idLie.length ? { dangerous, motive } : null,
+    premade: pm ? { id: pm.id, personality: pm.personality, voice: pm.voice, hidden: pm.hidden || [] } : null,
     cureDays, nervous: idLie.length || problems.has('weapon') || problems.has('substance') || (infected && rng.chance(0.6)) ? rng.float(0.3, 0.9) : rng.float(0, 0.2),
   };
 }
@@ -242,13 +271,7 @@ export async function paintBody(ch, spec) {
   }
   for (const reg of b.bites) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintBite(B, v.p, v.n, rng.float(0.9, 1.25), rng, true); await tick(); } }
   for (const reg of b.burns) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintBurn(B, v.p, v.n, rng.float(0.04, 0.08), rng.int(1, 999)); await tick(); } }
-  for (const d of b.decoys) {
-    const v = sampleRegion(B, rng, d.region);
-    if (!v) continue;
-    if (d.type === 'cut') { FX.paintCut(B, v.p, v.n, rng.float(0.03, 0.06), rng); await tick(); }
-    else if (d.type === 'bruise') { FX.paintBruise(B, v.p, v.n, rng.float(0.03, 0.06), rng.int(1, 99)); await tick(); }
-    else { FX.paintTattoo(B, v.p, v.n, rng.float(0.03, 0.05), rng.int(1, 99)); await tick(); }
-  }
+  await paintDecoys(ch, spec, tick);
   // washable dirt
   const dirt = b.dirt;
   for (let i = 0; i < 7; i++) { const v = sampleRegion(B, rng, rng.pick(['foot', 'calf', 'calf', 'foot'])); if (v) { FX.paintDirt(B, v.p, v.n, rng.float(0.08, 0.16), dirt * rng.float(0.6, 1), rng.int(1, 999)); await tick(); } }
@@ -263,6 +286,37 @@ export async function paintBody(ch, spec) {
   }
   ch.applyColors({ ...ch.look, sclera: SCLERA[b.sclera] || SCLERA.normal });
   ch.surfBody.flush(); ch.surfFace?.flush();
+  ch.initialDirt = measureDirt(ch);
+}
+
+// harmless marks (cuts, bruises, tattoos); each has its own seed so a cure can repaint them in place
+async function paintDecoys(ch, spec, tick) {
+  const B = ch.surfBody;
+  for (let i = 0; i < spec.body.decoys.length; i++) {
+    const d = spec.body.decoys[i];
+    const rng = new RNG((spec.seed ^ (0xdec0 + i * 7919)) >>> 0);
+    const v = sampleRegion(B, rng, d.region);
+    if (!v) continue;
+    if (d.type === 'cut') FX.paintCut(B, v.p, v.n, rng.float(0.03, 0.06), rng);
+    else if (d.type === 'bruise') FX.paintBruise(B, v.p, v.n, rng.float(0.03, 0.06), rng.int(1, 99));
+    else FX.paintTattoo(B, v.p, v.n, rng.float(0.03, 0.05), rng.int(1, 99));
+    if (tick) await tick();
+  }
+}
+
+// a patient leaving the cure tank: infection / radiation marks gone, skin scrubbed clean,
+// eyes back to normal. Tattoos and other harmless marks stay.
+export async function cureCharacter(ch, spec) {
+  spec.cured = true;
+  for (const S of [ch.surfBody, ch.surfFace]) {
+    if (!S) continue;
+    for (const k of ['cond', 'glow']) if (S.layers[k]) { S.layers[k].data.fill(0); S.layers[k].dirty = true; }
+    const fx = S.layers.fx;
+    if (fx) { const d = fx.data; for (let i = 0; i < d.length; i += 4) { d[i] = 0; d[i + 1] = 0; d[i + 2] = 0; } fx.dirty = true; }
+  }
+  if (ch.surfBody) await paintDecoys(ch, spec);
+  ch.applyColors({ ...ch.look, sclera: SCLERA.normal });
+  ch.surfBody?.flush(); ch.surfFace?.flush();
   ch.initialDirt = measureDirt(ch);
 }
 
@@ -301,11 +355,14 @@ export async function buildVisitorCharacter(spec, modelsById, { lowRes = false, 
   const uwCanvas = await composeUnderwear(spec.underwear, lowRes ? 1024 : 2048);
   const uwTex = new THREE.CanvasTexture(uwCanvas);
   uwTex.flipY = false; uwTex.colorSpace = THREE.SRGBColorSpace; uwTex.anisotropy = 8;
-  const ch = await Character.create(M.entry, M.cfg, spec.look, { uwTexture: uwTex, lowRes, fx });
+  const ch = await Character.create(M.entry, M.cfg, spec.look, { uwTexture: uwTex, lowRes, fx, hiddenItems: spec.premade?.hidden });
   await paintBody(ch, spec);
-  await paintClothing(ch, spec);
+  await paintClothing(ch, spec, { washed: !!spec.cured });
+  if (spec.cured) await cureCharacter(ch, spec);
   ch.spec = spec;
-  ch.animator.setPersonality(new RNG((spec.seed ^ 0xa11) >>> 0), spec.nervous || 0);
+  const PT = spec.premade && PERSONALITIES[spec.premade.personality];
+  ch.animator.setPersonality(new RNG((spec.seed ^ 0xa11) >>> 0), Math.max(spec.nervous || 0, PT?.nervous || 0));
+  if (PT) { ch.animator.personality.styles = PT.styles.slice(); ch.animator.personality.gesture = PT.gesture; ch.animator.armStyle = PT.styles[0]; }
   ch.animator.vrmScaleHint = spec.scale || 1;
   return ch;
 }

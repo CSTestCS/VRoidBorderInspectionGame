@@ -183,6 +183,28 @@ const ARM_STYLES = {
   modest: { pole: [0.55, -0.8, -0.05], curl: 0.4, left: { bone: 'hips', off: [0.04, -0.12, 0.15] }, right: { bone: 'hips', off: [-0.04, -0.1, 0.16] } },
 };
 
+// ---- motion-capture walk clips (converted from Mixamo, see tools/convert-mixamo.mjs) ----
+const CLIPS = {};
+export async function loadWalkClips(base = '../assets/anim/') {
+  for (const k of ['female', 'male']) {
+    try {
+      const c = await (await fetch(`${base}walk_${k}.json`)).json();
+      c.q = {};
+      for (const [b, arr] of Object.entries(c.bones)) c.q[b] = Float32Array.from(arr);
+      CLIPS[k] = c;
+    } catch (e) { console.warn('walk clip', k, e); }
+  }
+}
+const _qc = new THREE.Quaternion(), _qd = new THREE.Quaternion();
+function sampleClip(c, bone, u, out) {
+  const a = c.q[bone];
+  if (!a) return null;
+  const f = u * c.frames, i0 = Math.floor(f) % c.frames, i1 = (i0 + 1) % c.frames, t = f - Math.floor(f);
+  out.fromArray(a, i0 * 4);
+  _qd.fromArray(a, i1 * 4);
+  return out.slerp(_qd, t);
+}
+
 export class Animator {
   constructor(vrm) {
     this.vrm = vrm;
@@ -195,6 +217,7 @@ export class Animator {
     this.walking = false;
     this.walkPhase = 0;
     this.walkSpeed = 0;
+    this.walkW = 0; this.walkU = 0; this.clipName = 'female'; this.onStep = null;
     this.lookTarget = null;
     this.lookWeight = 0.6;
     this.floatMode = false;
@@ -320,7 +343,7 @@ export class Animator {
       add('head', Math.sin(time * 6.5) * 0.025, Math.sin(time * 2.3) * 0.03, 0);
       add('neck', Math.sin(time * 6.5 + 0.5) * 0.01, 0, 0);
     }
-    if (this.walking) {
+    if (this.walking && !CLIPS[this.clipName]) {
       const ph = this.walkPhase, s = Math.sin(ph), c = Math.cos(ph);
       const st = 0.42 * P.walk;
       add('leftUpperLeg', -st * s - 0.05, 0, 0); add('rightUpperLeg', st * s - 0.05, 0, 0);
@@ -375,6 +398,18 @@ export class Animator {
       add('head', pitch * 0.6, yaw * 0.6, 0);
     }
     return t;
+  }
+
+  _applyClip(clip) {
+    const w = this.walkW;
+    for (const [n, node] of Object.entries(this.bones)) {
+      if (!sampleClip(clip, n, this.walkU, _qc)) continue;
+      // head and neck keep most of their look-at / idle motion
+      const k = n === 'head' || n === 'neck' ? w * 0.35 : w;
+      node.quaternion.slerp(_qc, k);
+    }
+    // models without an upper chest bone get its motion folded into the chest
+    if (!this.bones.upperChest && this.bones.chest && sampleClip(clip, 'upperChest', this.walkU, _qc)) this.bones.chest.quaternion.multiply(_qd.identity().slerp(_qc, w));
   }
 
   _localToWorldFrom(boneName, off, out) {
@@ -471,6 +506,18 @@ export class Animator {
   update(dt) {
     this.time += dt;
     if (this.walking) this.walkPhase += dt * (5.2 * Math.max(0.6, this.walkSpeed)) / this.personality.walk;
+    const clip = CLIPS[this.clipName];
+    this.walkW = damp(this.walkW, this.walking && clip ? 1 : 0, 7, dt);
+    if (clip && this.walkW > 0.001) {
+      // play the clip so a planted foot moves at the same speed the character travels
+      const hipsH = Math.max(0.4, this.hipsRest.y);
+      const groundSpeed = clip.speed * hipsH; // m/s at rate 1
+      const rate = this.walking ? THREE.MathUtils.clamp(Math.max(0.5, this.walkSpeed) / groundSpeed, 0.6, 1.6) : 1;
+      const prev = this.walkU;
+      this.walkU = (this.walkU + dt * rate / clip.duration) % 1;
+      // footfalls roughly at the start and middle of the cycle
+      if (this.walking && this.onStep && ((prev < 0.02 && this.walkU >= 0.02) || (prev < 0.52 && this.walkU >= 0.52) || (this.walkU < prev && this.walkU >= 0.02))) this.onStep();
+    }
     for (const g of this.gestures) g.t += dt;
     this.gestures = this.gestures.filter((g) => g.t < g.dur);
     this._idleScheduler(dt);
@@ -483,6 +530,7 @@ export class Animator {
       this.fk[n].slerp(_q, k);
       node.quaternion.copy(this.fk[n]);
     }
+    if (clip && this.walkW > 0.001) this._applyClip(clip);
     const hips = this.bones.hips;
     if (hips) {
       let y = 0, x = 0;
@@ -493,6 +541,12 @@ export class Animator {
       this.hipsOffset.y = damp(this.hipsOffset.y, y, 6, dt);
       this.hipsOffset.x = damp(this.hipsOffset.x, x, 3, dt);
       hips.position.copy(this.hipsRest).add(this.hipsOffset);
+      if (clip && this.walkW > 0.001) {
+        const f = this.walkU * clip.frames, i = Math.floor(f) % clip.frames, j = (i + 1) % clip.frames, t = f - Math.floor(f), H = clip.hips, sc = this.hipsRest.y;
+        const cy = (H[i * 3 + 1] * (1 - t) + H[j * 3 + 1] * t) * sc, cx = (H[i * 3] * (1 - t) + H[j * 3] * t) * sc;
+        hips.position.y += (cy - this.hipsRest.y) * this.walkW;
+        hips.position.x += cx * this.walkW;
+      }
     }
     // IK on top of FK
     this.vrm.scene.updateWorldMatrix(true, true);
@@ -543,13 +597,18 @@ export class Face {
     const tgt = {};
     for (const e of EMOTIONS) tgt[e] = this.base[e] || 0;
     // standing attitude toward the officer colours the resting face
-    const att = this.attitude || 0;
-    tgt.happy += Math.max(0, att) * 0.28;
-    tgt.angry += Math.max(0, -att - 0.15) * 0.35;
+    // (-1 frustrated .. +1 admiring): it filters the situational mood and adds its own
+    const att = THREE.MathUtils.clamp(this.attitude || 0, -1, 1), pos = Math.max(0, att), neg = Math.max(0, -att);
+    tgt.happy *= 1 - neg * 0.85; tgt.relaxed *= 1 - neg * 0.6;
+    tgt.angry *= 1 - pos * 0.8; tgt.sad *= 1 - pos * 0.5;
+    tgt.happy += Math.max(0, pos - 0.08) * 0.42; tgt.relaxed += pos * 0.15;
+    tgt.angry += Math.max(0, neg - 0.12) * 0.5; tgt.sad += Math.min(neg, 0.35) * 0.3;
     this.timed = this.timed.filter((t) => t.until > this.time);
     for (const t of this.timed) {
+      // a frustrated visitor's smiles are thin, a fond visitor's anger is mild
+      const w = t.w * (t.name === 'happy' ? 1 - neg * 0.7 : t.name === 'angry' ? 1 - pos * 0.6 : 1);
       for (const e of EMOTIONS) if (e !== t.name) tgt[e] *= 0.3;
-      tgt[t.name] = Math.max(tgt[t.name] || 0, t.w);
+      tgt[t.name] = Math.max(tgt[t.name] || 0, w);
     }
     // blinking
     this.blinkT -= dt;

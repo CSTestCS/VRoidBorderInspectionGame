@@ -1,8 +1,73 @@
-// Gibberish speech synthesis: a glottal source through a formant filter bank,
-// noise consonants, syllable timing and intonation. Sounds like talking in an
-// unknown language rather than robot beeps. Returns a syllable timeline so the
-// face can lip-sync the actual vowels.
+// Formant speech synthesis: a glottal source through a formant filter bank,
+// noise consonants, syllable timing and intonation. In word mode the text is
+// converted to phonemes and the voice tries to pronounce it; otherwise it
+// babbles in an unknown language. Returns a syllable timeline for lip-sync.
 import { RNG } from './util.js';
+import { textToPhonemes, VOWEL_PH } from './phonemes.js';
+
+// ---- phoneme table for word mode (adult male formants, Hz) ----
+const PV = {
+  AA: [730, 1090, 2440], AE: [660, 1720, 2410], AH: [640, 1190, 2390], AO: [570, 840, 2410], EH: [530, 1840, 2480],
+  ER: [490, 1350, 1690], IH: [390, 1990, 2550], IY: [270, 2290, 3010], UH: [440, 1020, 2240], UW: [300, 870, 2240], AX: [500, 1500, 2500],
+};
+const DIPH = { EY: [[480, 1900, 2500], [300, 2250, 2900]], AY: [[720, 1150, 2440], [320, 2150, 2800]], OW: [[520, 900, 2400], [340, 780, 2300]], AW: [[720, 1150, 2440], [400, 950, 2300]], OY: [[560, 860, 2400], [330, 2100, 2700]] };
+const PVIS = { AA: 'aa', AE: 'aa', AH: 'aa', AY: 'aa', AW: 'aa', AX: 'aa', EH: 'ee', EY: 'ee', ER: 'ee', IH: 'ih', IY: 'ih', AO: 'oh', OW: 'oh', OY: 'oh', UH: 'ou', UW: 'ou' };
+const LONG_V = new Set(['IY', 'UW', 'AA', 'AO', 'ER', 'EY', 'AY', 'OW', 'AW', 'OY']);
+const PC = {
+  P: { t: 'plosive', f: 900, v: false, loc: [300, 900, 2300] }, B: { t: 'plosive', f: 800, v: true, loc: [300, 900, 2300] },
+  T: { t: 'plosive', f: 3800, v: false, loc: [300, 1700, 2600] }, D: { t: 'plosive', f: 3200, v: true, loc: [300, 1700, 2600] },
+  K: { t: 'plosive', f: 2200, v: false, loc: [300, 2000, 2500] }, G: { t: 'plosive', f: 2000, v: true, loc: [300, 2000, 2500] },
+  CH: { t: 'affric', f: 3000, v: false, loc: [300, 1900, 2600] }, JH: { t: 'affric', f: 2800, v: true, loc: [300, 1900, 2600] },
+  F: { t: 'fric', f: 7500, v: false, g: 0.07, q: 0.8, loc: [300, 1000, 2300] }, V: { t: 'fric', f: 6500, v: true, g: 0.04, q: 0.8, loc: [300, 1000, 2300] },
+  TH: { t: 'fric', f: 6500, v: false, g: 0.05, q: 0.7, loc: [300, 1500, 2600] }, DH: { t: 'fric', f: 5000, v: true, g: 0.03, q: 0.7, loc: [300, 1500, 2600], d: 0.04 },
+  S: { t: 'fric', f: 6200, v: false, g: 0.2, q: 3, loc: [300, 1700, 2600] }, Z: { t: 'fric', f: 6000, v: true, g: 0.11, q: 3, loc: [300, 1700, 2600] },
+  SH: { t: 'fric', f: 2900, v: false, g: 0.2, q: 2, loc: [300, 1900, 2500] }, ZH: { t: 'fric', f: 2800, v: true, g: 0.1, q: 2, loc: [300, 1900, 2500] },
+  HH: { t: 'h' },
+  M: { t: 'nasal', F: [280, 950, 2200] }, N: { t: 'nasal', F: [280, 1700, 2600] }, NG: { t: 'nasal', F: [280, 2100, 2700] },
+  L: { t: 'liquid', F: [360, 1000, 2400] }, R: { t: 'liquid', F: [420, 1250, 1550] }, W: { t: 'liquid', F: [300, 620, 2200] }, Y: { t: 'liquid', F: [280, 2250, 2900] },
+};
+const PDUR = { plosive: 0.07, affric: 0.1, fric: 0.09, h: 0.05, nasal: 0.065, liquid: 0.055 };
+
+function wordSegs(text, P, rate, emoPitch, rng) {
+  const words = textToPhonemes(text);
+  const question = /\?\s*$/.test(text), exclaim = /!\s*$/.test(text);
+  const segs = [];
+  let t = 0.03;
+  const totalV = words.reduce((a, w) => a + (w.ph ? w.ph.filter((p) => VOWEL_PH.has(p)).length : 0), 0) || 1;
+  let vi = 0;
+  words.forEach((w, wi) => {
+    if (w.pause) {
+      const d = /[.!?…]/.test(w.pause) ? 0.3 : 0.16;
+      segs.push({ t, d: d / rate, kind: 'pause' }); t += d / rate;
+      return;
+    }
+    const lastWord = !words.slice(wi + 1).some((x) => x.ph);
+    w.ph.forEach((ph, k) => {
+      if (VOWEL_PH.has(ph)) {
+        const stress = k === w.stress ? 1 : 0;
+        const prog = vi / Math.max(1, totalV - 1);
+        const last = lastWord && !w.ph.slice(k + 1).some((p) => VOWEL_PH.has(p));
+        let d = (ph === 'AX' ? 0.05 : LONG_V.has(ph) ? 0.115 : 0.078) * (stress ? 1.3 : 0.92) * rng.float(0.92, 1.08) / rate;
+        if (last) d *= 1.5;
+        let f = P.pitch * emoPitch * (1 - 0.15 * prog) * (1 + P.range * (stress ? 1 : 0) * rng.float(0.7, 1.15)) * rng.float(0.98, 1.02);
+        if (exclaim && stress) f *= 1.1;
+        if (question && last) f *= 1.3;
+        if (!question && last) f *= 0.88;
+        const di = DIPH[ph];
+        segs.push({ t, d, kind: 'vowel', F: di ? di[0] : PV[ph], F2: di ? di[1] : null, vis: PVIS[ph] || 'aa', stress: ph === 'AX' ? 0 : stress, f0: f, last, reduced: ph === 'AX' });
+        t += d; vi++;
+      } else {
+        const c = PC[ph];
+        if (!c) return;
+        const d = (c.d || PDUR[c.t]) * rng.float(0.9, 1.1) / rate;
+        segs.push({ t, d, kind: 'cons', cons: c });
+        t += d;
+      }
+    });
+    t += 0.012 / rate;
+  });
+  return { segs, T: t + 0.1, question, exclaim };
+}
 
 // formant targets (adult male, Hz): F1, F2, F3
 const VOWELS = {
@@ -66,14 +131,7 @@ function wordsOf(text) {
   return out;
 }
 
-// Schedules an utterance. opts: { profile, emotion, radio, pan, bus }
-export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
-  const P = opts.profile || makeVoiceProfile(1);
-  const rng = new RNG(((Math.random() * 1e9) | 0) ^ P.seed);
-  const emo = opts.emotion || 'neutral';
-  const emoPitch = { happy: 1.1, angry: 1.05, sad: 0.9, surprised: 1.18, scared: 1.15, neutral: 1 }[emo] || 1;
-  const emoRate = { happy: 1.05, angry: 1.08, sad: 0.85, surprised: 1.1, scared: 1.15, neutral: 1 }[emo] || 1;
-  const rate = P.rate * emoRate;
+function babbleSegs(text, P, rate, emoPitch, rng) {
   const words = wordsOf(text);
   const question = /\?\s*$/.test(text), exclaim = /!\s*$/.test(text);
 
@@ -108,7 +166,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
       if (exclaim) f *= 1.08;
       if (question && last) f *= 1.28;
       if (!question && last) f *= 0.9;
-      segs.push({ t, d: vd, kind: 'vowel', vowel, stress, f0: f, last });
+      segs.push({ t, d: vd, kind: 'vowel', F: VOWELS[vowel], vis: VISEME[vowel], stress, f0: f, last });
       t += vd;
       if (rng.chance(0.18)) { // closed syllable (CVC)
         const c = rng.weighted(CONS.filter(([x]) => x.t !== 'h'));
@@ -120,7 +178,19 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
     }
     t += rng.float(0.006, 0.03) / rate; // tiny inter-word gap
   }
-  const T = t + 0.08;
+  return { segs, T: t + 0.08, question, exclaim };
+}
+
+// Schedules an utterance. opts: { profile, emotion, radio, pan, bus }
+export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
+  const P = opts.profile || makeVoiceProfile(1);
+  const rng = new RNG(((Math.random() * 1e9) | 0) ^ P.seed);
+  const emo = opts.emotion || 'neutral';
+  const emoPitch = { happy: 1.1, angry: 1.05, sad: 0.9, surprised: 1.18, scared: 1.15, neutral: 1 }[emo] || 1;
+  const emoRate = { happy: 1.05, angry: 1.08, sad: 0.85, surprised: 1.1, scared: 1.15, neutral: 1 }[emo] || 1;
+  const rate = P.rate * emoRate;
+  const built = opts.words ? wordSegs(text, P, rate, emoPitch, rng) : babbleSegs(text, P, rate, emoPitch, rng);
+  const { segs, T, question, exclaim } = built;
   const t0 = ctx.currentTime + 0.03;
 
   // ---- audio graph ----
@@ -182,9 +252,10 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
     });
   };
   // initial state
-  const v0 = VOWELS[(segs.find((s) => s.kind === 'vowel') || { vowel: '@' }).vowel];
+  const v0 = (segs.find((s) => s.kind === 'vowel') || { F: VOWELS['@'] }).F;
   v0.forEach((hz, k) => { F[k].frequency.setValueAtTime(hz * fs, t0); F[k].Q.setValueAtTime(hz * fs / [90, 110, 160][k], t0); });
   src.frequency.setValueAtTime(P.pitch * emoPitch, t0);
+  fricF.frequency.setValueAtTime(4000, t0);
   const amp = (opts.emotion === 'angry' || exclaim) ? 1.15 : opts.emotion === 'sad' ? 0.8 : 1;
   const breath = P.breath;
   const syllables = [];
@@ -198,98 +269,62 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
       continue;
     }
     if (s.kind === 'vowel') {
-      const lvl = (0.55 + 0.45 * s.stress) * amp;
+      const lvl = (s.reduced ? 0.45 : 0.55 + 0.45 * s.stress) * amp;
       voiced.gain.linearRampToValueAtTime(lvl, a + 0.018);
       voiced.gain.linearRampToValueAtTime(lvl * (s.last ? 0.25 : 0.85), e);
       asp.gain.linearRampToValueAtTime(breath * lvl * 0.22, a + 0.02);
-      setF(VOWELS[s.vowel], a, Math.min(0.05, s.d * 0.5));
+      if (s.F2) { setF(s.F, a, Math.min(0.035, s.d * 0.3)); setF(s.F2, e - s.d * 0.15, s.d * 0.0); }
+      else setF(s.F, a, Math.min(0.045, s.d * 0.45));
       src.frequency.linearRampToValueAtTime(s.f0, a + s.d * 0.5);
-      syllables.push({ t: s.t, d: s.d, v: VISEME[s.vowel], w: 0.35 + 0.55 * (s.stress ? 1 : 0.7) });
+      syllables.push({ t: s.t, d: s.d, v: s.vis, w: s.reduced ? 0.3 : 0.35 + 0.55 * (s.stress ? 1 : 0.7) });
       continue;
     }
     const c = s.cons;
-    if (c.t === 'plosive') {
-      // closure (silence), then a short burst
+    if (c.loc) setF(c.loc, a, s.d * 0.5); // formant transition toward the consonant
+    if (c.t === 'plosive' || c.t === 'affric') {
+      // closure (near silence, a voice bar for voiced stops), then a burst / frication
+      const rel = c.t === 'affric' ? a + s.d * 0.45 : e - 0.018;
       voiced.gain.linearRampToValueAtTime(c.v ? 0.12 : 0, a + 0.012);
       asp.gain.linearRampToValueAtTime(0, a + 0.012);
-      fricF.frequency.setValueAtTime(c.f, e - 0.018);
-      fric.gain.setValueAtTime(0, e - 0.02);
-      fric.gain.linearRampToValueAtTime(0.32 * amp, e - 0.012);
-      fric.gain.linearRampToValueAtTime(0, e + 0.008);
+      fricF.frequency.setValueAtTime(c.f, rel - 0.002);
+      fricF.Q.setValueAtTime(c.t === 'affric' ? 2 : 1.6, rel - 0.002);
+      fric.gain.setValueAtTime(0, rel - 0.002);
+      if (c.t === 'affric') { fric.gain.linearRampToValueAtTime(0.2 * amp, rel + 0.012); fric.gain.linearRampToValueAtTime(0, e); }
+      else {
+        fric.gain.linearRampToValueAtTime((c.v ? 0.2 : 0.32) * amp, rel + 0.006);
+        fric.gain.linearRampToValueAtTime(0, e + 0.008);
+        // voiceless stops are aspirated going into the vowel
+        if (!c.v) { asp.gain.setValueAtTime(0, e); asp.gain.linearRampToValueAtTime(0.14 * amp, e + 0.006); }
+      }
     } else if (c.t === 'fric') {
-      voiced.gain.linearRampToValueAtTime(c.v ? 0.25 : 0, a + 0.02);
+      voiced.gain.linearRampToValueAtTime(c.v ? 0.22 : 0, a + 0.02);
       asp.gain.linearRampToValueAtTime(0, a + 0.02);
       fricF.frequency.setValueAtTime(c.f, a);
-      fric.gain.linearRampToValueAtTime(0.16 * amp, a + 0.02);
+      fricF.Q.setValueAtTime(c.q ?? 2.2, a);
+      fric.gain.linearRampToValueAtTime((c.g ?? 0.16) * amp, a + 0.02);
       fric.gain.linearRampToValueAtTime(0, e);
     } else if (c.t === 'h') {
       voiced.gain.linearRampToValueAtTime(0, a + 0.015);
       asp.gain.linearRampToValueAtTime(0.22 * amp, a + 0.02);
       asp.gain.linearRampToValueAtTime(breath * 0.1, e);
     } else if (c.t === 'nasal') {
-      voiced.gain.linearRampToValueAtTime(0.35 * amp, a + 0.015);
-      setF([280, 1300, 2500], a, 0.02);
+      voiced.gain.linearRampToValueAtTime(0.32 * amp, a + 0.015);
+      setF(c.F || [280, 1300, 2500], a, 0.02);
     } else { // liquid / glide
       voiced.gain.linearRampToValueAtTime(0.5 * amp, a + 0.015);
-      setF([380, rng.pick([1000, 1250, 2100]), 2400], a, s.d * 0.6);
+      setF(c.F || [380, rng.pick([1000, 1250, 2100]), 2400], a, s.d * 0.6);
     }
   }
   const end = t0 + T;
   voiced.gain.linearRampToValueAtTime(0, end);
   asp.gain.linearRampToValueAtTime(0, end);
   for (const n of [src, vib, jit, nz]) { n.start(t0); n.stop(end + 0.1); }
+  let stopped = false;
   src.onended = () => { try { out.disconnect(); } catch {} };
-  return { duration: T, syllables };
-}
-
-// ---- real spoken lines via the system's text-to-speech voices ----------------
-const FEMALE_NAMES = /female|zira|hazel|susan|eva|aria|jenny|sara|libby|sonia|catherine|linda|heather|samantha|victoria|karen|moira|tessa|fiona|natasha|michelle|emma|amy|joanna|kendra|kimberly|salli|ivy|olivia|ana|clara|elsa|helena|hedda|nanami|haruka/i;
-const MALE_NAMES = /\bmale|david|mark|george|guy|ryan|james|richard|daniel|alex\b|fred|thomas|arthur|christopher|eric|steffan|sean|brian|matthew|joey|justin|kevin|liam|oliver|william/i;
-let ttsVoices = [];
-function loadVoices() {
-  if (typeof speechSynthesis === 'undefined') return [];
-  ttsVoices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
-  return ttsVoices;
-}
-if (typeof speechSynthesis !== 'undefined') { loadVoices(); speechSynthesis.addEventListener?.('voiceschanged', loadVoices); }
-export const ttsAvailable = () => (ttsVoices.length ? true : loadVoices().length > 0);
-
-function pickVoice(profile) {
-  const female = profile.female !== false;
-  const byGender = ttsVoices.filter((v) => (female ? FEMALE_NAMES.test(v.name) : MALE_NAMES.test(v.name) && !FEMALE_NAMES.test(v.name)));
-  const pool = byGender.length ? byGender : ttsVoices;
-  return pool[Math.abs(profile.seed | 0) % pool.length];
-}
-
-// Estimated syllable timeline for lip-sync (TTS gives no phoneme timing).
-function estimateTimeline(text, rate) {
-  const syl = [];
-  let t = 0;
-  const tokens = text.match(/[A-Za-z0-9'\-]+|[.,!?;:…]+/g) || [];
-  const vis = { a: 'aa', e: 'ee', i: 'ih', o: 'oh', u: 'ou', y: 'ih' };
-  for (const tk of tokens) {
-    if (/^[.,!?;:…]+$/.test(tk)) { t += (/[.!?…]/.test(tk) ? 0.3 : 0.16) / rate; continue; }
-    const groups = tk.toLowerCase().match(/[aeiouy]+/g) || ['a'];
-    for (const g of groups) { const d = 0.17 / rate; syl.push({ t, d, v: vis[g[0]] || 'aa', w: 0.6 }); t += d; }
-    t += 0.03 / rate;
-  }
-  return { duration: t + 0.1, syllables: syl };
-}
-
-export function speakTTS(text, profile, { volume = 1, emotion = 'neutral' } = {}) {
-  if (!ttsAvailable()) return null;
-  const female = profile.female !== false;
-  const u = new SpeechSynthesisUtterance(text);
-  u.voice = pickVoice(profile) || null;
-  // pitch: 0..2 (1 = default); female voices sit higher, older a bit lower
-  const base = female ? 1.18 + ((profile.pitch - 200) / 70) * 0.3 : 0.82 + ((profile.pitch - 92) / 48) * 0.25;
-  const emoP = { happy: 0.08, surprised: 0.15, sad: -0.08, angry: 0.03 }[emotion] || 0;
-  u.pitch = Math.max(0.4, Math.min(2, base + emoP - (profile.age === 'old' ? 0.1 : 0)));
-  const emoR = { sad: 0.88, angry: 1.08, surprised: 1.08, happy: 1.04 }[emotion] || 1;
-  u.rate = Math.max(0.6, Math.min(1.6, profile.rate * emoR));
-  u.volume = Math.max(0, Math.min(1, volume));
-  const est = estimateTimeline(text, u.rate);
-  speechSynthesis.cancel();
-  speechSynthesis.speak(u);
-  return { ...est, utterance: u };
+  const stop = () => {
+    if (stopped) return; stopped = true;
+    const now = ctx.currentTime;
+    try { out.gain.cancelScheduledValues(now); out.gain.setValueAtTime(out.gain.value, now); out.gain.linearRampToValueAtTime(0, now + 0.06); for (const n of [src, vib, jit, nz]) n.stop(now + 0.08); } catch {}
+  };
+  return { duration: T, syllables, stop };
 }

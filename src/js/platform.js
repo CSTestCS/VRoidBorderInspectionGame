@@ -84,6 +84,16 @@ export async function storeSet(key, value) {
   if (native) return native.storeSet(key, value);
   try { localStorage.setItem('haven:' + key, JSON.stringify(value)); } catch {}
 }
+// save a text file where the player chooses (native dialog, or a browser download)
+export async function saveTextFile(name, text) {
+  if (native?.saveText) return native.saveText(name, text);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return name;
+}
 export function quit() { if (native) native.quit(); else window.close(); }
 export function toggleFullscreen() {
   if (native) return native.toggleFullscreen();

@@ -54,7 +54,7 @@ export class Player {
 
   _bind() {
     const dom = this.engine.renderer.domElement;
-    window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
+    window.addEventListener('keydown', (e) => { this.keys[e.code] = true; if ((e.ctrlKey || e.metaKey) && document.pointerLockElement && e.code !== 'F11' && e.code !== 'F12') e.preventDefault(); });
     window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
     window.addEventListener('blur', () => { this.keys = {}; this.mouse.left = this.mouse.right = false; });
     dom.addEventListener('mousedown', (e) => {

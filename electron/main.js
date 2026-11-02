@@ -1,6 +1,6 @@
 // Electron entry point. Serves the game through a privileged app:// scheme so
 // that fetch(), ES modules and canvas pixel access all work like a website.
-const { app, BrowserWindow, protocol, net, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -60,10 +60,17 @@ function createWindow() {
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
     if (input.type === 'keyDown' && input.key === 'F12') { win.webContents.toggleDevTools(); e.preventDefault(); }
+    if (input.type === 'keyDown' && (input.control || input.meta) && !input.alt && input.key !== 'F11' && input.key !== 'F12') {
+      // let the page see the key, but never let Chromium act on Ctrl shortcuts
+      if (/^[a-z0-9=+\-]$/i.test(input.key) && !['c', 'v', 'x', 'a', 'z'].includes(input.key.toLowerCase())) e.preventDefault();
+    }
   });
 }
 
 app.whenReady().then(() => {
+  // no application menu: its hidden accelerators (Ctrl+W close, Ctrl+R reload, Ctrl+zoom...)
+  // fire while the player holds Ctrl to crouch
+  Menu.setApplicationMenu(null);
   protocol.handle('app', (req) => {
     const u = new URL(req.url);
     const base = u.host === 'user' ? userDir() : ROOT;
@@ -99,6 +106,13 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('store:get', (e, key) => readJSON(path.join(userDir(), `${key}.json`), null));
   ipcMain.handle('store:set', (e, key, value) => { writeJSON(path.join(userDir(), `${key}.json`), value); return true; });
+  ipcMain.handle('file:saveText', async (e, name, text) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    const r = await dialog.showSaveDialog(w, { defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'JSON', extensions: ['json'] }] });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, text, 'utf8');
+    return r.filePath;
+  });
   ipcMain.handle('app:quit', () => app.quit());
   ipcMain.handle('app:fullscreen', (e) => { const w = BrowserWindow.fromWebContents(e.sender); w.setFullScreen(!w.isFullScreen()); });
 

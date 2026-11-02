@@ -32,7 +32,7 @@ const PAGES = {
   'ID Check': () => el('div', {},
     el('h3', {}, 'Compare the card with the person'),
     el('ul', {},
-      el('li', {}, el('b', {}, 'Portrait: '), 'face shape, hair colour, skin tone and eye colour must match. Portraits predate the collapse: they never show dirt, infection or discolouration — ignore those differences.'),
+      el('li', {}, el('b', {}, 'Portrait: '), 'face, hairstyle, hair colour, skin tone and eye colour must all match — a forger may get the colours right on the wrong face, or the right face with one colour off. Portraits predate the collapse: they never show dirt, infection or discolouration — ignore those differences.'),
       el('li', {}, el('b', {}, 'Name: '), 'ask "State your full name" on the intercom. It must match the card exactly.'),
       el('li', {}, el('b', {}, 'Date of birth: '), 'ask for it; it must match the card.'),
       el('li', {}, el('b', {}, 'Height: '), 'compare the visitor with the height chart behind them. A difference of more than ~10 cm is a mismatch.'),

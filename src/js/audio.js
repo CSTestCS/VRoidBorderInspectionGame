@@ -1,4 +1,4 @@
-import { speak, makeVoiceProfile, speakTTS } from './voice.js';
+import { speak, makeVoiceProfile } from './voice.js';
 // Procedural sound effects via WebAudio.
 export class Audio {
   constructor() {
@@ -104,15 +104,12 @@ export class Audio {
   good() { this.tone({ freq: 520, dur: 0.1, gain: 0.08 }); setTimeout(() => this.tone({ freq: 780, dur: 0.14, gain: 0.08 }), 90); }
   bubble() { this.tone({ freq: 300 + Math.random() * 300, dur: 0.08, gain: 0.03, to: 900 }); }
 
-  // gibberish speech (see voice.js). Returns { duration, syllables } for lip-sync.
+  // synthesized speech (see voice.js): reads the line, or babbles in 'babble' mode.
+  // Returns { duration, syllables } for lip-sync.
   voice(text, female = true, opts = {}) {
     if (!this.ensure()) return { duration: 0, syllables: [] };
     const profile = opts.profile || makeVoiceProfile(female ? 7 : 3, female ? 'female' : 'male');
-    if (this.voiceMode !== 'babble') {
-      const r = speakTTS(text, profile, { volume: this.volume * (this.levels.voice ?? 1), emotion: opts.emotion });
-      if (r) return r;
-    }
-    return speak(this.ctx, this.voiceIn || this.bus.voice, this.noise, text, { ...opts, profile });
+    return speak(this.ctx, this.voiceIn || this.bus.voice, this.noise, text, { ...opts, profile, words: this.voiceMode !== 'babble' });
   }
 }
 export const audio = new Audio();

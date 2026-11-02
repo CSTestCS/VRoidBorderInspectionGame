@@ -6,7 +6,7 @@ import { audio } from './audio.js';
 import { makeVoiceProfile } from './voice.js';
 import { keys as KB, K, keyName } from './keys.js';
 import { RNG, el, clamp, damp, sleep } from './util.js';
-import { generateVisitor, buildVisitorCharacter, correctOutcome, measureDirt, paintClothing, PROBLEM_LABEL, CURRENT_YEAR } from './visitor.js';
+import { generateVisitor, buildVisitorCharacter, correctOutcome, measureDirt, paintClothing, cureCharacter, PROBLEM_LABEL, CURRENT_YEAR } from './visitor.js';
 import { renderPortrait, renderPortraitFrom, compileGradually } from './portrait.js';
 import { drawCardFront, drawCardBack, drawCardUV, makeCardMesh, fmtDate } from './idcard.js';
 import { patchMaterial } from './vrm/materials.js';
@@ -16,6 +16,7 @@ import { openRulebook } from './rulebook.js';
 import { REACT, GREETINGS, HANDOVER, NAME_HESITATE, NO_CONTRABAND, NO_CONTRABAND_LIE, NO_BITE, NO_BITE_LIE, INTERRO_Q } from './data.js';
 import { drawCardFront as drawFront, drawCardUV as drawUV } from './idcard.js';
 import { storeSet } from './platform.js';
+import { PERSONALITIES } from './creator.js';
 import { CATEGORY_LABEL } from './vrm/modelConfig.js';
 import { Proxies } from './proxies.js';
 
@@ -35,6 +36,7 @@ export class Game {
     this.run = null;
     this.interro = null;
     this.tanks = [null, null, null, null];
+    this.premadeSeen = new Set();
     this.walkers = new Set(); // characters walking somewhere on their own
     this.idCompare = {};
     this.dayLog = [];
@@ -134,26 +136,41 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- lifecycle
-  async startDay(dayNumber, { count = null, preset = null } = {}) {
+  async startDay(dayNumber, { count = null, preset = null, resume = null } = {}) {
     this.day = dayNumber;
-    this.dayLog = [];
+    this.dayLog = resume?.dayLog || [];
     const rng = new RNG((Date.now() ^ (dayNumber * 7919)) >>> 0);
     const n = count ?? (dayNumber === 1 ? rng.int(3, 4) : rng.int(3, 7));
     this.queue = preset ? preset.slice() : Array.from({ length: n }, () => generateVisitor(rng.int(1, 2 ** 31 - 1), this.models));
-    this.dayTotal = this.queue.length;
-    this.rainy = !preset && dayNumber >= 2 && rng.chance(0.3);
+    if (!preset && !resume) this.addPremades(rng);
+    this.dayTotal = resume?.dayTotal ?? this.queue.length;
+    this.rainy = resume ? !!resume.rainy : !preset && dayNumber >= 2 && rng.chance(0.3);
     this.world.setRain(this.rainy);
     this.idCompare = {};
     this.prepared?.done?.then((j) => j?.ch && j.ch !== this.run?.ch && j.ch.dispose());
     this.prepared = null;
     this.prepareNext();
-    for (const t of this.tanks) if (t) t.checkedToday = false;
+    if (!resume) for (const t of this.tanks) if (t) t.checkedToday = false;
     await this.loadTankCharacters();
+    if (resume?.interro) await this.restoreInterro(resume.interro);
     this.player.teleport(SPOTS.playerStart, 0, -0.05);
     this.updateHUD();
     this.setObjective('Press the green <b>NEXT</b> button on your desk to call the first visitor.');
-    this.ui.toast(`Day ${dayNumber} — ${this.dayTotal} visitors expected.`, 'warn', 5);
+    if (resume) this.ui.toast(`Day ${dayNumber} resumed — ${this.queue.length} of ${this.dayTotal} visitors still waiting.`, 'warn', 5);
+    else this.ui.toast(`Day ${dayNumber} — ${this.dayTotal} visitors expected.`, 'warn', 5);
     if (this.rainy) this.ui.toast('Heavy rain outside today. Visitors will arrive soaked.', '', 6);
+  }
+
+  // premade characters: each may turn up once per save, at most one a day
+  addPremades(rng) {
+    const pool = (this.app.premades || []).filter((p) => p.enabled !== false && !this.premadeSeen.has(p.id) && this.models.some((m) => m.entry.id === p.modelId));
+    if (!pool.length) return;
+    const chance = this.day === 1 ? 0.12 : 0.22;
+    const pick = rng.shuffle(pool).find(() => rng.chance(chance));
+    if (!pick) return;
+    const spec = generateVisitor(rng.int(1, 2 ** 31 - 1), this.models, { premade: pick });
+    this.queue.splice(rng.int(this.day === 1 ? 1 : 0, this.queue.length), 0, spec);
+    this.premadeSeen.add(pick.id);
   }
 
   async loadTankCharacters() {
@@ -193,7 +210,7 @@ export class Game {
   say(ch, text, who) {
     if (!text) return 0;
     const female = ch?.spec ? ch.spec.sex !== 'male' : true;
-    if (ch && !ch.voice && ch.spec) ch.voice = makeVoiceProfile(ch.spec.seed, ch.spec.sex, ch.spec.age);
+    if (ch && !ch.voice && ch.spec) ch.voice = { ...makeVoiceProfile(ch.spec.seed, ch.spec.sex, ch.spec.age), ...(ch.spec.premade?.voice || {}) };
     // voices behind glass come through the intercom; in-room voices are panned
     const behindGlass = ch && (this.run?.ch === ch && ['arriving', 'booth'].includes(this.run.phase) || this.interro?.run.ch === ch);
     let pan = 0;
@@ -202,17 +219,17 @@ export class Game {
       const p = ch.root.position.clone().add(new THREE.Vector3(0, 1.5, 0)).applyMatrix4(cam.matrixWorldInverse);
       pan = Math.max(-0.8, Math.min(0.8, p.x / Math.max(0.5, Math.hypot(p.x, p.z))));
     }
-    const emotion = ch?.face?.timed?.[ch.face.timed.length - 1]?.name || (ch?.face?.base?.sad > 0.3 ? 'sad' : ch?.face?.base?.happy > 0.3 ? 'happy' : 'neutral');
+    const att = ch?.face?.attitude || 0;
+    const emotion = ch?.face?.timed?.[ch.face.timed.length - 1]?.name || (ch?.face?.base?.sad > 0.3 ? 'sad' : att < -0.4 ? 'angry' : ch?.face?.base?.happy > 0.3 || att > 0.45 ? 'happy' : 'neutral');
     const v = ch
       ? audio.voice(text, female, { profile: ch.voice, radio: behindGlass, pan: behindGlass ? 0 : pan, emotion })
       : audio.voice(text, false, { profile: this.interrogatorVoice || (this.interrogatorVoice = makeVoiceProfile(4242, 'male', 'adult')), radio: true });
     const dur = v.duration || text.length * 0.05;
     ch?.face?.talk(dur + 0.5, v.syllables);
-    if (v.utterance && ch) {
-      // re-sync the lips when the system voice actually starts / stops
-      v.utterance.onstart = () => ch.face?.talk(dur, v.syllables);
-      v.utterance.onend = () => ch.face?.stopTalking();
-    }
+    // a new line cuts off whatever this speaker was still saying
+    const key = ch || this;
+    key._voiceStop?.();
+    key._voiceStop = v.stop;
     const an = ch?.animator;
     if (an && text.length > 28 && !an.walking && an.pose !== 'armsUp' && Math.random() < an.personality.gesture) an.play(Math.random() < 0.6 ? 'explain' : 'explainL');
     this.ui.subtitle(who || (ch?.spec ? this.speakerName(ch) : ''), text, Math.max(2.5, dur + 1.2));
@@ -271,7 +288,7 @@ export class Game {
       spec, phase: 'arriving', idStamp: null, cardViewed: false, asked: new Set(), searched: new Set(), found: [],
       fate: {}, washer: [], clothesReturned: false, dispo: null, events: [], hosed: false, hoseTime: 0, faceHits: 0,
       armsUp: false, turned: false, uvUsedOnCard: false,
-      favor: Math.round(new RNG((spec.seed ^ 0xfa) >>> 0).float(-12, 15)), questions: 0,
+      favor: Math.round(new RNG((spec.seed ^ 0xfa) >>> 0).float(-12, 15) + (PERSONALITIES[spec.premade?.personality]?.favor || 0)), questions: 0,
     };
     try {
       const ready = await this.takePrepared(spec);
@@ -425,6 +442,8 @@ export class Game {
   }
 
   walkTo(ch, target, speed = 1.0) {
+    if (ch.spec) ch.animator.clipName = ch.spec.sex === 'male' ? 'male' : 'female';
+    if (!ch.animator.onStep) ch.animator.onStep = () => audio.step();
     return new Promise((resolve) => { ch.walk = { target: target.clone(), speed, resolve }; ch.animator.walking = true; ch.animator.walkSpeed = speed; });
   }
   updateWalk(ch, dt) {
@@ -441,7 +460,6 @@ export class Game {
     ch.root.rotation.y += diff * Math.min(1, dt * 6);
     const step = Math.min(dist, w.speed * dt * (Math.abs(diff) > 1.2 ? 0.3 : 1));
     p.x += (dx / dist) * step; p.z += (dz / dist) * step;
-    if (Math.random() < dt * 1.8) audio.step();
   }
   turnTo(ch, ry) { ch.turnTarget = ry; }
 
@@ -490,7 +508,7 @@ export class Game {
         el('button', { onclick: flip }, 'Flip card (F)'),
         el('button', { onclick: toggleUV, style: { borderColor: '#9b6bff' } }, 'UV lamp (U)'),
         el('button', { onclick: () => m.close() }, `Close (${keyName(KB.idcard)} / Esc)`)),
-      el('p', { class: 'muted' }, 'Compare the portrait, name and details with the visitor. Use the height chart behind them and look at their eyes (hold right mouse to zoom).'));
+      el('p', { class: 'muted' }, 'Compare the portrait, name and details with the visitor. Use the height chart beside them and look at their eyes (hold right mouse to zoom).'));
     const m = this.ui.modal(content, { side: true, title: 'Identity Card' });
     m.keys = (e) => { if (e.code === 'KeyF') flip(); if (e.code === 'KeyU') toggleUV(); if (e.code === KB.idcard) m.close(); };
   }
@@ -997,7 +1015,14 @@ export class Game {
     }
     let realPortrait = run.portrait;
     if (s.problems.includes('invalidPortrait')) {
-      notes.push('Portrait shows a different person.');
+      const pv = s.details?.portrait, cl = c.portrait.look;
+      notes.push({
+        hair: `Portrait hair is ${String(cl.hairName || 'a different colour').toLowerCase()} — the visitor's hair is ${String(s.look.hairName || '').toLowerCase()}.`,
+        skin: 'Portrait skin tone does not match the visitor.',
+        eyes: `Portrait eyes are ${String(cl.eyeName || 'a different colour').toLowerCase()} — the visitor's eyes are ${String(s.look.eyeName || '').toLowerCase()}.`,
+        model: 'Portrait shows a different face and hairstyle wearing the visitor\'s colours.',
+        person: 'Portrait shows a different person entirely.',
+      }[pv] || 'Portrait shows a different person.');
       try { realPortrait = await renderPortraitFrom(this.engine, run.ch, s.look); } catch { realPortrait = run.portrait; }
     }
     this.idCompare[s.id] = {
@@ -1030,6 +1055,7 @@ export class Game {
     const majors = results.filter((r) => r.sev === 'major').length;
     if (majors) audio.error();
     this.updateHUD();
+    this.autosave();
   }
 
   // Compare what the player did with the correct procedure.
@@ -1186,7 +1212,7 @@ export class Game {
       el('div', {}, 'Radiation contamination: ', el('b', {}, `${Math.round(radLevel)}%`)), bar(radLevel, '#ffb347'),
       status,
       el('div', { class: 'row' },
-        el('button', { class: 'primary', disabled: t.checkedToday, onclick: (e) => { t.checkedToday = true; audio.bubble(); audio.good(); update(); e.target.disabled = true; this.emit('tankChecked', i); } }, 'Check vitals & administer cure cycle'),
+        el('button', { class: 'primary', disabled: t.checkedToday, onclick: (e) => { t.checkedToday = true; audio.bubble(); audio.good(); update(); e.target.disabled = true; this.emit('tankChecked', i); this.autosave(); } }, 'Check vitals & administer cure cycle'),
         el('button', { onclick: () => { m.close(); this.releasePatient(i); } }, 'Release patient'),
         el('button', { onclick: () => m.close() }, 'Close')),
       el('p', { class: 'muted' }, 'Patients must be checked every day. Release them only when both readings are at 0%.'));
@@ -1204,17 +1230,21 @@ export class Game {
       const run = t.run || { spec: t.spec, found: [], fate: {}, idStamp: t.idStamp, washer: [] };
       run.releaseResults = [early ? { sev: 'major', text: 'Released a patient before the cure was complete.' } : { sev: 'ok', text: 'Patient fully cured before release.' }];
       run.released = true; run.early = early; run.phase = 'releasing'; run.clothesReturned = true;
-      run.favor = (run.favor ?? 0) + (early ? 5 : 30);
       const ch = t.ch;
       run.ch = ch;
+      this.favor(run, early ? 5 : 30);
       ch.knownName = `${t.spec.card.first} ${t.spec.card.last}`;
       this.tanks[i] = null;
       this.run = run;
       this.updateHUD();
       ch.setFloating(false); ch.face.eyesClosed = 0; ch.face.setBase({ relaxed: 0.3 });
+      // a finished cure leaves no trace of the illness; the tank also scrubs the skin clean
+      if (!early) await cureCharacter(ch, t.spec);
+      else { for (const S of [ch.surfBody, ch.surfFace]) { const d = S?.layers.fx?.data; if (d) { for (let k = 0; k < d.length; k += 4) { d[k] = d[k + 1] = d[k + 2] = 0; } S.layers.fx.dirty = true; S.flush(); } } }
       ch.setLayers({ fx: 1 });
-      for (const id of run.washer || []) ch.setItemVisible(id, true);
-      ch.setClothWet(0.6);
+      // their washed clothes wait in the decontamination room
+      for (const S of ch.clothSurf.values()) { S.layers.ov.data.fill(0); S.layers.glow.data.fill(0); S.layers.ov.dirty = S.layers.glow.dirty = true; }
+      const washing = paintClothing(ch, t.spec, { washed: true });
       ch.animator.setPose('idle');
       ch.animator.lookTarget = this.engine.camera; ch.lookAt(this.engine.camera);
       audio.bubble();
@@ -1223,6 +1253,12 @@ export class Game {
       this.react('release', 'relaxed', 0.6, run);
       await this.walkPath(ch, [tankApproach(i)[0], ...PATHS.labToDecon], 1.1);
       ch.turnTarget = Math.PI;
+      // get dressed now that they are back in the washroom
+      await washing;
+      await sleep(600);
+      ch.animator.play('adjust');
+      for (const id of run.washer || []) { ch.setItemVisible(id, true); await sleep(350); }
+      ch.setClothWet(0);
       run.proxies = new Proxies(ch);
       await run.proxies.bakeAsync();
       run.phase = 'released';
@@ -1230,7 +1266,7 @@ export class Game {
     };
     const content = el('div', {},
       el('p', {}, early ? el('span', { class: 'warn' }, 'Warning: readings are not at 0%. Releasing now is against procedure.') : 'Patient is cured.'),
-      el('p', { class: 'muted' }, 'The patient will get dressed and walk to the decontamination room, where you decide where they go next.'),
+      el('p', { class: 'muted' }, 'The patient will walk to the decontamination room, get dressed in their washed clothes, and wait for your decision.'),
       el('div', { class: 'row' }, el('button', { class: 'primary', onclick: go }, 'Release'), el('button', { onclick: () => m.close() }, 'Cancel')));
     const m = this.ui.modal(content, { title: 'Release Patient' });
   }
@@ -1252,6 +1288,7 @@ export class Game {
 
   async disposeReleased(choice) {
     const run = this.run;
+    run.disposed = true;
     const ch = run.ch;
     const sub = this.evaluate({ ...run, ch: null }, 'tankRelease-' + choice).filter((r) => !/cure tanks/.test(r.text));
     this.recordResults(run.spec, [...run.releaseResults, ...sub]);
@@ -1342,15 +1379,62 @@ export class Game {
 
   async nextDay() { await this.startDay(this.day + 1); }
 
-  async save(day = this.day) {
-    const data = { version: 1, day, credits: this.credits, tanks: this.tanks.map((t) => (t ? { spec: t.spec, level: t.level, daysIn: t.daysIn, idStamp: t.idStamp, washer: t.run?.washer || [] } : null)) };
-    await storeSet('save', data);
+  // Saved at the end of each day and after every visitor is dealt with (midDay holds the rest of the shift).
+  async save(day = this.day, { midDay = false } = {}) {
+    if (this.app.tutorial || this.noSave) return;
+    const tank = (t) => (t ? { spec: t.spec, level: t.level, daysIn: t.daysIn, idStamp: t.idStamp, washer: t.run?.washer || [], favor: t.run?.favor ?? 0, checkedToday: midDay ? !!t.checkedToday : false } : null);
+    const data = { version: 2, day, credits: this.credits, tanks: this.tanks.map(tank), premadeSeen: [...this.premadeSeen] };
+    if (midDay) {
+      const ir = this.interro?.run;
+      // a visitor still being processed is put back at the front of the line;
+      // a released patient who hasn't been dealt with goes back into a tank, cured
+      const r = this.run, logged = r && this.dayLog.some((e) => e.spec.id === r.spec.id && !r.released);
+      const front = r && !r.released && !logged && r.phase !== 'interrogation' ? [r.spec] : [];
+      if (r?.released && !r.disposed) {
+        const i = data.tanks.findIndex((x) => !x);
+        if (i >= 0) data.tanks[i] = { spec: r.spec, level: 0, daysIn: 0, idStamp: r.idStamp, washer: r.washer || [], favor: r.favor ?? 0, checkedToday: true };
+      }
+      data.midDay = {
+        queue: [...front, ...this.queue], dayTotal: this.dayTotal, rainy: this.rainy,
+        dayLog: this.dayLog.map((e) => ({ spec: e.spec, name: e.name, results: e.results, delta: e.delta, favor: e.favor, admire: e.admire })),
+        interro: ir ? { spec: ir.spec, idStamp: ir.idStamp, favor: ir.favor ?? 0, washer: ir.washer || [], released: !!ir.released } : null,
+      };
+    }
+    try { await storeSet('save', data); } catch (e) { console.warn('save failed', e); }
+  }
+  // called once a visitor has been dealt with
+  autosave() {
+    if (this.app.tutorial) return;
+    clearTimeout(this._saveT);
+    this._saveT = setTimeout(() => this.save(this.day, { midDay: true }), 400);
   }
   async load(data) {
     this.credits = data.credits || 0;
-    this.tanks = (data.tanks || [null, null, null, null]).map((t) => (t ? { spec: t.spec, level: t.level, daysIn: t.daysIn, idStamp: t.idStamp, checkedToday: false, run: { spec: t.spec, washer: t.washer, found: [], fate: {}, idStamp: t.idStamp } } : null));
+    this.premadeSeen = new Set(data.premadeSeen || []);
+    this.tanks = (data.tanks || [null, null, null, null]).map((t) => (t ? { spec: t.spec, level: t.level, daysIn: t.daysIn, idStamp: t.idStamp, checkedToday: !!t.checkedToday, run: { spec: t.spec, washer: t.washer, found: [], fate: {}, idStamp: t.idStamp, favor: t.favor ?? 0 } } : null));
     while (this.tanks.length < 4) this.tanks.push(null);
-    await this.startDay(data.day || 1);
+    const md = data.midDay;
+    if (md && (md.queue.length || md.interro)) await this.startDay(data.day || 1, { preset: md.queue, resume: md });
+    else if (md) { this.dayLog = md.dayLog || []; this.day = data.day || 1; await this.startDay(this.day, { preset: [], resume: md }); }
+    else await this.startDay(data.day || 1);
+  }
+
+  // a visitor who was waiting in interrogation when the game was saved
+  async restoreInterro(info) {
+    const spec = info.spec;
+    const ch = await buildVisitorCharacter(spec, this.modelsById);
+    for (const it of ch.items.values()) if (!['underwear', 'fixed'].includes(it.category)) ch.setItemVisible(it.id, (info.washer || []).includes(it.id));
+    ch.knownName = `${spec.card.first} ${spec.card.last}`;
+    const run = { spec, ch, found: [], fate: {}, idStamp: info.idStamp, favor: info.favor, washer: info.washer || [], released: info.released, phase: 'interrogation', clothesReturned: true };
+    ch.face.attitude = (run.favor ?? 0) / 100;
+    this.scene.add(ch.root);
+    const seat = PATHS.deconToInterro[PATHS.deconToInterro.length - 1];
+    ch.root.position.set(seat.x, 0, seat.z);
+    ch.root.rotation.y = Math.PI / 2; ch.turnTarget = Math.PI / 2;
+    ch.animator.setPose('sit', true);
+    ch.animator.handTargets = this.tableHands();
+    ch.face.setBase({ sad: 0.4 });
+    this.interro = { run, stage: 'waiting' };
   }
 
   // -------------------------------------------------------------- radiation
@@ -1366,7 +1450,7 @@ export class Game {
         else if (this.player.carrying?.itemId === it.id) add(this.engine.camera.localToWorld(v.set(0, -0.3, -0.5)), 0.6);
         else if (run.fate[it.id] === 'wash') add(new THREE.Vector3(-5.5, 0.5, 12), 0.6);
       }
-      if (run.spec.body.rad > 0) for (const b of ['chest', 'hips', 'head', 'leftLowerLeg', 'rightLowerArm']) add(run.ch.boneWorld(b, v), 0.07 * run.spec.body.rad);
+      if (run.spec.body.rad > 0 && !run.spec.cured) for (const b of ['chest', 'hips', 'head', 'leftLowerLeg', 'rightLowerArm']) add(run.ch.boneWorld(b, v), 0.07 * run.spec.body.rad);
     }
     this.tanks.forEach((t, i) => { if (t && t.spec.body.rad > 0 && t.level > 0) add(TANK_POS[i].clone().setY(1.2), 0.05 * t.spec.body.rad * t.level / 100); });
     return r;

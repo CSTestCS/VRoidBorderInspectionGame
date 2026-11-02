@@ -6,10 +6,12 @@ import { listAllModels, storeGet, storeSet, quit, isNative, toggleFullscreen } f
 import { initUnderwear } from './vrm/underwear.js';
 import { loadVRM } from './vrm/loader.js';
 import { prepareModel } from './vrm/character.js';
+import { loadWalkClips } from './vrm/pose.js';
 import { resolveConfig } from './vrm/modelConfig.js';
 import { Game } from './game.js';
 import { Tutorial, makeTutorialVisitor } from './tutorial.js';
 import { Workshop } from './workshop.js';
+import { CharacterCreator, loadPremades } from './creator.js';
 import { openRulebook } from './rulebook.js';
 import { audio } from './audio.js';
 import { ACTIONS, DEFAULT_KEYS, keys as KB, setKeys, keyName } from './keys.js';
@@ -42,6 +44,8 @@ class App {
     this.loading('Loading underwear catalogue…', 0.05);
     await initUnderwear();
     try { this.builtinDefaults = await (await fetch('../assets/models/builtin-config.json')).json(); } catch { this.builtinDefaults = {}; }
+    await loadWalkClips();
+    this.premades = await loadPremades();
     this.configs = (await storeGet('modelConfigs')) || {};
     await this.loadModels();
     this.doneLoading();
@@ -84,6 +88,7 @@ class App {
       save ? el('button', { class: 'primary', onclick: () => this.startGame({ save }) }, `Continue (Day ${save.day})`) : null,
       el('button', { class: save ? '' : 'primary', onclick: () => this.newGame(!!save) }, 'New Game'),
       el('button', { onclick: () => this.openWorkshop() }, 'Model Workshop (import .vrm)'),
+      el('button', { onclick: () => this.openCreator() }, 'Premade Characters'),
       el('button', { onclick: () => openRulebook(this.ui) }, 'Procedures Manual'),
       el('button', { onclick: () => this.openSettings() }, 'Settings'),
       isNative ? el('button', { onclick: () => quit() }, 'Quit') : null);
@@ -153,7 +158,7 @@ class App {
         el('button', { class: 'primary', onclick: resume }, 'Resume'),
         el('button', { onclick: () => openRulebook(this.ui) }, 'Procedures Manual'),
         el('button', { onclick: () => this.openSettings() }, 'Settings'),
-        el('button', { onclick: async () => { if (await this.ui.confirm('Quit to menu', 'Progress since the start of this day will be lost (the game saves at the end of each day).', 'Quit')) this.toMenu(); } }, 'Quit to main menu'))));
+        el('button', { onclick: async () => { if (await this.ui.confirm('Quit to menu', 'The game saves after every visitor you finish and at the end of each day. A visitor still being processed will be lost.', 'Quit')) this.toMenu(); } }, 'Quit to main menu'))));
     screen.addEventListener('keydown', (e) => { if (e.code === 'Escape') resume(); });
     this.ui.screen(screen);
     this._pauseKey = (e) => { if (e.code === 'Escape' && this.paused && !this.ui.modalOpen) { resume(); window.removeEventListener('keydown', this._pauseKey); } };
@@ -181,8 +186,8 @@ class App {
       row('Water / hose', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.water, oninput: (e) => { s.water = Number(e.target.value); save(); } })),
       row('Ambience', el('input', { type: 'range', min: 0, max: 1, step: 0.05, value: s.ambience, oninput: (e) => { s.ambience = Number(e.target.value); save(); } })),
       row('Visitor voices', el('select', { onchange: (e) => { s.voiceMode = e.target.value; save(); } },
-        el('option', { value: 'speech', selected: s.voiceMode === 'speech' }, 'Spoken lines (system voices)'),
-        el('option', { value: 'babble', selected: s.voiceMode === 'babble' }, 'Gibberish (synthesized)'))),
+        el('option', { value: 'speech', selected: s.voiceMode === 'speech' }, 'Speak the lines'),
+        el('option', { value: 'babble', selected: s.voiceMode === 'babble' }, 'Gibberish babble'))),
       row('Controls', el('button', { onclick: () => this.openControls() }, 'Key bindings…')),
       row('Fullscreen', el('button', { onclick: () => toggleFullscreen() }, 'Toggle (F11)')),
       el('div', { class: 'row' }, el('button', { onclick: () => m.close() }, 'Close'))), { title: 'Settings' });
@@ -215,6 +220,13 @@ class App {
         el('button', { onclick: () => { setKeys({}); s.keys = {}; storeSet('settings', s); draw(); } }, 'Reset to defaults'),
         el('button', { class: 'primary', onclick: () => m.close() }, 'Done'))),
       { title: 'Key Bindings', onClose: () => window.removeEventListener('keydown', onKey, true) });
+  }
+
+  async openCreator() {
+    if (!this.activeModels().length) { this.ui.toast('No visitor models are enabled. Open the Model Workshop.', 'bad'); return; }
+    this.ui.screen(null);
+    this.creator = new CharacterCreator(this);
+    await this.creator.open();
   }
 
   async openWorkshop() {

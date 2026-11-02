@@ -193,6 +193,7 @@ export class Character {
     const src = mesh.geometry;
     const index = src.index.array;
     for (const g of groups.values()) {
+      if (this.opts.hiddenItems?.includes(g.itemId)) continue; // premade character chose not to wear it
       const idx = new (index.constructor)(g.tris.length * 3);
       g.tris.forEach((t, k) => { idx[k * 3] = index[t * 3]; idx[k * 3 + 1] = index[t * 3 + 1]; idx[k * 3 + 2] = index[t * 3 + 2]; });
       const geom = new THREE.BufferGeometry();

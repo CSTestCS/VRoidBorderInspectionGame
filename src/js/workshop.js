@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { el, RNG, hex } from './util.js';
-import { listAllModels, importModels, deleteModel, storeSet } from './platform.js';
+import { listAllModels, importModels, deleteModel, storeSet, saveTextFile } from './platform.js';
 import { loadVRM, forgetBuffer } from './vrm/loader.js';
 import { Character, clearCleanedCache } from './vrm/character.js';
 import { CATEGORIES, MATERIAL_ROLES, COLOR_SLOTS, resolveConfig } from './vrm/modelConfig.js';
@@ -122,7 +122,10 @@ export class Workshop {
       pre.vrm.scene.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
       this.analysis = pre.analysis;
       this.cfg = JSON.parse(JSON.stringify(resolveConfig(entry, pre.analysis, this.app.configs[id] || (entry.builtin ? this.app.builtinDefaults?.[id] : null))));
-      await this.rebuild();
+      // every model opens on a fresh random look
+      const rng = new RNG((Math.random() * 1e9) | 0);
+      this.look = this.lookFor(rng);
+      await this.rebuild(rng);
       this.renderPanel();
       this.refreshList();
     } catch (e) {
@@ -160,6 +163,21 @@ export class Workshop {
     const rng = new RNG((Math.random() * 1e9) | 0);
     this.look = this.lookFor(rng);
     await this.rebuild(rng);
+  }
+
+  // the configuration as it is now (including unsaved edits), keyed by model id like builtin-config.json
+  async exportConfig() {
+    const e = this.current;
+    const data = {
+      format: 'haven-checkpoint-model-config', version: 1, exportedAt: new Date().toISOString(),
+      model: { id: e.id, name: this.cfg.name || e.name, file: e.file || (e.url ? decodeURIComponent(e.url.split('/').pop()) : null), builtin: !!e.builtin },
+      configs: { [e.id]: this.cfg },
+    };
+    const safe = String(this.cfg.name || e.id).replace(/[^\w\-]+/g, '_');
+    try {
+      const where = await saveTextFile(`${safe}.haven-config.json`, JSON.stringify(data, null, 2));
+      if (where) { const w = String(where); this.ui.toast(/[\\/]/.test(w) ? `Configuration exported to ${w}` : 'Configuration exported.', 'good', 5); }
+    } catch (err) { this.ui.toast('Export failed: ' + err.message, 'bad'); }
   }
 
   frame(what) {
@@ -212,6 +230,7 @@ export class Workshop {
     this.saveBtn = el('button', { class: 'primary', disabled: !this.dirty, onclick: () => this.save() }, 'Save configuration');
     P.append(el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, this.saveBtn,
       el('button', { onclick: async () => { if (await this.ui.confirm('Reset', 'Reset this model to automatic defaults?', 'Reset')) { delete this.app.configs[this.current.id]; this.cfg = JSON.parse(JSON.stringify(resolveConfig(this.current, this.analysis, this.current.builtin ? this.app.builtinDefaults?.[this.current.id] : null))); this.markDirty(); await this.rebuild(); this.renderPanel(); } } }, 'Reset to defaults'),
+      el('button', { title: 'Save this model\'s configuration as a .json file to share', onclick: () => this.exportConfig() }, 'Export configuration…'),
       !this.current.builtin ? el('button', { class: 'danger', onclick: () => this.remove() }, 'Delete model') : null));
 
     P.append(el('h3', {}, 'Model'));

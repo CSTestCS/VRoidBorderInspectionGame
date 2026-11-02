@@ -7,7 +7,7 @@ const packager = require('@electron/packager');
 
 const root = path.join(__dirname, '..');
 const keep = [/^\/package\.json$/, /^\/electron(\/|$)/, /^\/src(\/|$)/, /^\/assets(\/|$)/];
-const skip = [/^\/src\/dev\./, /^\/assets\/test-models(\/|$)/];
+const skip = [/^\/src\/dev\./, /^\/assets\/test-models(\/|$)/, /^\/assets\/anim\/source(\/|$)/];
 
 (async () => {
   const out = path.join(root, 'dist');
