@@ -15,7 +15,7 @@ export const GLOBAL_UNIFORMS = {
   hvUvFlood: { value: 0 }, // UV light switch: the whole box below glows
   hvFloodMin: { value: new THREE.Vector3(-6, -1, 9) },
   hvFloodMax: { value: new THREE.Vector3(6, 4, 21) },
-  hvScanOn: { value: 0 }, hvScanPos: { value: new THREE.Vector3() }, hvScanDir: { value: new THREE.Vector3(0, 0, -1) }, hvScanCos: { value: Math.cos(0.3) },
+  hvScanOn: { value: 0 }, hvScanPos: { value: new THREE.Vector3() }, hvScanDir: { value: new THREE.Vector3(0, 0, -1) }, hvScanCos: { value: Math.cos(0.42) },
   hvXrOn: { value: 0 }, hvXrPos: { value: new THREE.Vector3() }, hvXrDir: { value: new THREE.Vector3(0, 0, -1) }, hvXrCos: { value: Math.cos(0.075) },
   hvTime: { value: 0 },
 };
