@@ -58,6 +58,8 @@ export const REACT = {
   returnItem: { neutral: ['Thank you.', 'Thanks. That means a lot.', 'Oh, good.'], friendly: ['Thank you so much!', "You're kind. Thank you.", 'I was so worried about that.'], hostile: ['Finally.', 'Took you long enough.'] },
   burn: { neutral: ['Those are my only clothes!', "Wait - you're burning it?", 'Oh no...', 'Was it that bad?'], friendly: ["If you say so... I trust you.", 'Better safe, I guess.'], hostile: ["Unbelievable.", 'You just burn whatever you like?', "I'll freeze because of you."] },
   hoseStart: ['Ah! ...Oh. It is warm.', 'Whoa - hey! ...okay, that is actually nice.', 'Hey!', 'Ack! Warn me next time!', 'Eek! ...huh, warm water.', 'Gah! At least it is warm.', 'Oh! That is... warmer than I expected.', 'Mm. Warm water. I forgot what that felt like.'],
+  hoseDressed: ['Hey! I am still dressed!', 'My clothes! What are you doing?!', 'Seriously? I have not even undressed yet!', 'Stop it! You are soaking everything!', 'Is this part of the procedure?!', 'Ugh, now it is all wet and heavy.', 'Hey - cut that out!'],
+  hoseDressedAgain: ['I just got my clothes back!', 'Oh, come on - they were finally dry!', 'Really? Again?!', 'What is wrong with you?', 'Now I have to walk around soaking wet!', 'Was that necessary?'],
   hoseExpect: ['Warm water. I have dreamed about this.', 'Go ahead. I am ready.', 'Ahh. That is nice and warm.', 'Mm, warm. Thank you.', 'Okay, scrub away.', 'First hot water in months.'],
   // sent from the window to decontamination
   whereGo: ['Okay. Where do I go?', 'Which way?', 'Through there?', 'Where now?', 'Uh... which door?', 'Where are you sending me?', 'Is it that door?', 'Okay... then what?', 'Decon? What is that?', 'Do I just follow the corridor?', 'Wait, where do I go now?', 'And now?'],

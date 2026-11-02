@@ -800,12 +800,17 @@ export class Game {
       }
       return;
     }
-    if (!run || !['decon', 'hose', 'inspect'].includes(run.phase)) { this.ui.toast('There is no one to wash.'); return; }
     if (this.player.carrying) { this.ui.toast('Your hands are full.', 'warn'); return; }
-    const left = this.removableItems().filter((o) => !run.fate[o.id]);
-    if (left.length) { this.ui.toast('Remove and sort all clothing before hosing.', 'warn'); audio.error(); return; }
     this.player.hasHose = true;
     this.player.setTool('hose');
+    audio.click();
+    // the real wash starts once every garment is off and sorted; before that (or after
+    // dressing them again) the hose still works, it just soaks clothes and annoys people
+    const left = run ? this.removableItems().filter((o) => !run.fate[o.id]) : [];
+    if (!run || !['decon', 'hose', 'inspect'].includes(run.phase) || left.length || run.clothesReturned) {
+      if (run?.ch && ['decon', 'inspect', 'released'].includes(run.phase)) { this.ensureProxies(); run.proxies.includeHair = true; run.proxies.bakeAsync(); }
+      return;
+    }
     run.phase = 'hose';
     this.ensureProxies();
     run.proxies.includeHair = true;
@@ -816,7 +821,8 @@ export class Game {
 
   onSpray(origin, dir, dt) {
     const run = this.run;
-    if (!run?.ch || run.phase !== 'hose' || !run.proxies) return;
+    if (!run?.ch || !run.proxies) return;
+    if (run.phase !== 'hose') { if (['decon', 'inspect', 'released'].includes(run.phase)) this.casualSpray(run, origin, dir, dt); return; }
     const res = run.proxies.spray(origin, dir, dt);
     if (res.hitSkin || res.hitHair) {
       run.hoseTime += dt;
@@ -836,6 +842,24 @@ export class Game {
       if (!run.lastCover || performance.now() - run.lastCover > 2600) { run.lastCover = performance.now(); if (!run.armsUp) run.ch.animator.play('coverFace'); this.favor(run, -4); }
       run.lastFaceHit = performance.now();
       if (run.faceHits > 0.6 && !run.complainedFace) { run.complainedFace = true; this.react('hoseFace', 'angry', 0.6); }
+    }
+  }
+
+  // spraying someone who is (still or again) dressed
+  casualSpray(run, origin, dir, dt) {
+    run.proxies.rinsable = (id) => run.spec.clothing[id] === 'mud' && !run.clothesReturned;
+    const res = run.proxies.spray(origin, dir, dt);
+    if (!res.hitItem && !res.hitSkin && !res.hitHair) return;
+    if (res.hitHair || res.hitSkin) run.ch.animator.mood = 'wet';
+    run.casualSpray = (run.casualSpray || 0) + dt;
+    const now = performance.now();
+    if (res.hitFace) { run.ch.face.eyesClosed = 1; run.lastFaceHit = now; }
+    if (!run.lastSprayGripe || now - run.lastSprayGripe > 3500) {
+      run.lastSprayGripe = now;
+      const dressedAgain = run.clothesReturned;
+      this.react(dressedAgain ? 'hoseDressedAgain' : 'hoseDressed', run.casualSpray > 4 ? 'angry' : 'surprised', 0.8);
+      if (!run.armsUp) run.ch.animator.play(res.hitFace ? 'coverFace' : 'recoil');
+      this.favor(run, dressedAgain ? -6 : -3);
     }
   }
 
@@ -1492,7 +1516,7 @@ export class Game {
       return null;
     }, () => (this.player.carrying ? this.depositCarried('wash') : this.returnClothes()));
     reg('incinerator', () => (this.player.carrying ? `Burn ${this.player.carrying.name}` : null), () => this.depositCarried('burn'));
-    reg('hose', () => (this.player.hasHose ? 'Put the hose back' : this.run && ['decon', 'hose', 'inspect'].includes(this.run.phase) ? 'Take the hose' : null), () => this.toggleHose(), 2.4);
+    reg('hose', () => (this.player.hasHose ? 'Put the hose back' : 'Take the hose'), () => this.toggleHose(), 2.4);
     reg('terminal', () => (this.run && ['decon', 'hose', 'inspect', 'released'].includes(this.run.phase) ? 'Disposition terminal' : null), () => this.openTerminal());
     reg('interroConsole', () => (this.interro ? 'Review interrogation' : null), () => this.openInterrogation());
     for (let i = 0; i < 4; i++) reg('tank' + i, () => (this.tanks[i] ? `Tank ${i + 1} monitor` : `Tank ${i + 1} (empty)`), () => this.openTank(i));

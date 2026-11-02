@@ -196,8 +196,8 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   // ---- audio graph ----
   const out = ctx.createGain(); out.gain.value = 0.9;
   // tame the upper mids (where a formant synth turns nasal / heady) and the hiss above
-  const warm = ctx.createBiquadFilter(); warm.type = 'peaking'; warm.frequency.value = 2600; warm.Q.value = 0.9; warm.gain.value = -5;
-  const air = ctx.createBiquadFilter(); air.type = 'lowpass'; air.frequency.value = 6500; air.Q.value = 0.5;
+  const warm = ctx.createBiquadFilter(); warm.type = 'peaking'; warm.frequency.value = 2600; warm.Q.value = 0.9; warm.gain.value = -3.5;
+  const air = ctx.createBiquadFilter(); air.type = 'lowpass'; air.frequency.value = 7800; air.Q.value = 0.5;
   const chest = ctx.createBiquadFilter(); chest.type = 'lowshelf'; chest.frequency.value = 300; chest.gain.value = 3;
   out.connect(warm).connect(air).connect(chest);
   let tail = chest;
@@ -236,7 +236,8 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   // fricative / burst noise (bypasses the formants)
   const fricF = ctx.createBiquadFilter(); fricF.type = 'bandpass'; fricF.Q.value = 2.2;
   const fric = ctx.createGain(); fric.gain.value = 0;
-  nz.connect(fricF).connect(fric).connect(out);
+  const crisp = ctx.createBiquadFilter(); crisp.type = 'highshelf'; crisp.frequency.value = 3500; crisp.gain.value = 4;
+  nz.connect(fricF).connect(fric).connect(crisp).connect(chest);
   // formant bank
   const F = [0, 1, 2].map((k) => {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
@@ -294,9 +295,9 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
       fricF.frequency.setValueAtTime(c.f, rel - 0.002);
       fricF.Q.setValueAtTime(c.t === 'affric' ? 2 : 1.6, rel - 0.002);
       fric.gain.setValueAtTime(0, rel - 0.002);
-      if (c.t === 'affric') { fric.gain.linearRampToValueAtTime(0.2 * amp, rel + 0.012); fric.gain.linearRampToValueAtTime(0, e); }
+      if (c.t === 'affric') { fric.gain.linearRampToValueAtTime(0.26 * amp, rel + 0.008); fric.gain.linearRampToValueAtTime(0, e); }
       else {
-        fric.gain.linearRampToValueAtTime((c.v ? 0.2 : 0.32) * amp, rel + 0.006);
+        fric.gain.linearRampToValueAtTime((c.v ? 0.26 : 0.42) * amp, rel + 0.004);
         fric.gain.linearRampToValueAtTime(0, e + 0.008);
         // voiceless stops are aspirated going into the vowel
         if (!c.v) { asp.gain.setValueAtTime(0, e); asp.gain.linearRampToValueAtTime(0.14 * amp, e + 0.006); }
@@ -306,7 +307,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
       asp.gain.linearRampToValueAtTime(0, a + 0.02);
       fricF.frequency.setValueAtTime(c.f, a);
       fricF.Q.setValueAtTime(c.q ?? 2.2, a);
-      fric.gain.linearRampToValueAtTime((c.g ?? 0.16) * amp, a + 0.02);
+      fric.gain.linearRampToValueAtTime((c.g ?? 0.16) * 1.3 * amp, a + 0.015);
       fric.gain.linearRampToValueAtTime(0, e);
     } else if (c.t === 'h') {
       voiced.gain.linearRampToValueAtTime(0, a + 0.015);

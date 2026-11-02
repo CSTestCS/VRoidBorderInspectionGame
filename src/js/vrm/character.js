@@ -302,22 +302,30 @@ export class Character {
   // Wet clothing: cloth fabrics darken; light soft cloth (cotton) becomes see-through.
   setClothWet(w) {
     this.clothWet = w;
+    for (const it of this.items.values()) { it.wet = w; for (const m of it.meshes) this._wetMat(m.material, w); }
+  }
+  // one garment soaked by the hose while still being worn
+  setItemWet(id, w) {
+    const it = this.items.get(id);
+    if (!it) return;
+    it.wet = w;
+    for (const m of it.meshes) this._wetMat(m.material, w);
+  }
+  _wetMat(mat, w) {
     const CLOTH = ['cotton', 'knit', 'denim', 'silk', 'sheer'];
-    for (const it of this.items.values()) for (const m of it.meshes) {
-      const mat = m.material, u = mat.userData.hv;
-      if (!u?.hvClothWet) continue;
-      const fab = mat.userData.fabric || 'cotton';
-      u.hvClothWet.value = w;
-      u.hvWetDark.value = CLOTH.includes(fab) ? 1 : 0;
-      u.hvWetSheer.value = fab === 'cotton' ? 1 : 0;
-      const seeThrough = w > 0.01 && fab === 'cotton';
-      if (seeThrough !== !!mat.userData.wetBlend) {
-        mat.userData.wetBlend = seeThrough;
-        if (mat.userData.dryAlphaTest === undefined) mat.userData.dryAlphaTest = mat.alphaTest;
-        mat.transparent = seeThrough || fab === 'sheer' || fab === 'glass';
-        mat.alphaTest = seeThrough ? 0.02 : mat.userData.dryAlphaTest;
-        mat.needsUpdate = true;
-      }
+    const u = mat.userData.hv;
+    if (!u?.hvClothWet) return;
+    const fab = mat.userData.fabric || 'cotton';
+    u.hvClothWet.value = w;
+    u.hvWetDark.value = CLOTH.includes(fab) ? 1 : 0;
+    u.hvWetSheer.value = fab === 'cotton' ? 1 : 0;
+    const seeThrough = w > 0.01 && fab === 'cotton';
+    if (seeThrough !== !!mat.userData.wetBlend) {
+      mat.userData.wetBlend = seeThrough;
+      if (mat.userData.dryAlphaTest === undefined) mat.userData.dryAlphaTest = mat.alphaTest;
+      mat.transparent = seeThrough || fab === 'sheer' || fab === 'glass';
+      mat.alphaTest = seeThrough ? 0.02 : mat.userData.dryAlphaTest;
+      mat.needsUpdate = true;
     }
   }
 

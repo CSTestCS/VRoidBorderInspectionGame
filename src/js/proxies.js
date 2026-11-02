@@ -81,7 +81,7 @@ export class Proxies {
       for (const m of it.meshes) {
         const key = m.userData.matKey;
         const src = ch.materialsByKey[key].mesh;
-        if (!baked.has(key)) baked.set(key, bakePositions(src));
+        if (!baked.has(key)) { baked.set(key, bakePositions(src)); ch.clothSurf.get(key)?.setPositions('baked', baked.get(key)); }
         list.push(proxyMesh(baked.get(key), m.geometry.index.array, { kind: 'item', itemId: it.id, mesh: m }));
         if (yieldIf) await yieldIf();
       }
@@ -114,7 +114,8 @@ export class Proxies {
   // One frame of hose spray. Returns { hitSkin, hitFace, hitHair }.
   spray(origin, dir, dt) {
     const ch = this.ch;
-    const res = { hitSkin: false, hitFace: false, hitHair: false };
+    const res = { hitSkin: false, hitFace: false, hitHair: false, hitItem: null };
+    this.touched = this.touched || new Set();
     const rays = 12;
     const d = new THREE.Vector3();
     const back = dir.clone().negate();
@@ -128,6 +129,20 @@ export class Proxies {
       if (hit.data.kind === 'hair') {
         res.hitHair = true;
         ch.setHairWet(Math.min(1, ch.hairWet + dt * 0.09 * falloff));
+        continue;
+      }
+      if (hit.data.kind === 'item') {
+        // hosing someone who is still dressed: the garment soaks, loose mud rinses off
+        const id = hit.data.itemId, it = ch.items.get(id);
+        res.hitItem = id;
+        ch.setItemWet(id, Math.min(1, (it.wet || 0) + dt * 0.5 * falloff));
+        if (this.rinsable?.(id)) {
+          const key = hit.data.mesh.userData.matKey, surf = ch.clothSurf.get(key);
+          if (surf?.posSets.has('baked')) {
+            const ov = surf.layers.ov.data, amt = dt * 255 * 1.4 * falloff;
+            if (surf.paint('ov', hit.point, 0.07, (i, t) => { ov[i + 3] = Math.max(0, ov[i + 3] - amt * (1 - t)); }, { posKey: 'baked', tris: it.tris.get(key) })) this.touched.add(surf);
+          }
+        }
         continue;
       }
       if (hit.data.kind !== 'skin') continue;
@@ -151,6 +166,8 @@ export class Proxies {
         }, { posKey: 'baked', distFn: (x, y, z) => x * x * 6 + z * z * 6 + (y > 0 ? y * y * 30 : y * y * 0.6) });
       }
     }
+    for (const sf of this.touched) sf.flush();
+    this.touched.clear();
     return res;
   }
 }
