@@ -13,6 +13,7 @@ import { Tutorial, makeTutorialVisitor } from './tutorial.js';
 import { Workshop } from './workshop.js';
 import { CharacterCreator, loadPremades } from './creator.js';
 import { loadPron } from './pron.js';
+import { MAX_LEVELS } from './upgrades.js';
 import { openPronunciation } from './pronEditor.js';
 import { openRulebook } from './rulebook.js';
 import { audio } from './audio.js';
@@ -25,7 +26,7 @@ class App {
     this.models = [];
     this.game = null;
     this.tutorial = null;
-    this.settings = { quality: 'high', sensitivity: 1, invertY: false, volume: 0.8, sfx: 1, voice: 1, water: 0.7, ambience: 0.8, voiceMode: 'speech', keys: {} };
+    this.settings = { quality: 'high', sensitivity: 1, invertY: false, volume: 0.8, sfx: 1, voice: 1, water: 0.7, ambience: 0.8, voiceMode: 'speech', keys: {}, crouchMode: 'toggle', zoomMode: 'toggle' };
   }
 
   loading(text, frac) {
@@ -125,10 +126,13 @@ class App {
     if (save) await this.game.load(save);
     else if (tutorial) {
       await storeSet('save', null);
+      // training uses the full equipment; the real job starts with the basic kit
+      this.game.owned = { ...MAX_LEVELS };
       await this.game.startDay(1, { preset: [makeTutorialVisitor(this.activeModels())] });
       this.game.ui.dayInfo('<b>TRAINING SHIFT</b>');
       this.tutorial = new Tutorial(this.game, (choice) => {
         this.tutorial = null;
+        this.game.resetForNewGame();
         if (choice === 'day1') this.game.startDay(1);
         else { this.game.save(1); this.toMenu(); }
       });
@@ -176,7 +180,7 @@ class App {
       audio.setVolume(s.volume);
       audio.voiceMode = s.voiceMode;
       audio.setLevels({ sfx: s.sfx, voice: s.voice, water: s.water, ambience: s.ambience });
-      if (this.game) { this.game.player.sensitivity = s.sensitivity; this.game.player.invertY = s.invertY; }
+      if (this.game) { this.game.player.sensitivity = s.sensitivity; this.game.player.invertY = s.invertY; this.game.player.crouchToggle = s.crouchMode !== 'hold'; this.game.player.zoomToggle = s.zoomMode !== 'hold'; }
     };
     const row = (label, input) => el('div', { class: 'ws-field', style: { gridTemplateColumns: '170px 1fr' } }, el('label', {}, label), input);
     const m = this.ui.modal(el('div', { style: { width: '460px' } },
@@ -193,6 +197,8 @@ class App {
         el('option', { value: 'speech', selected: s.voiceMode === 'speech' }, 'Speak the lines'),
         el('option', { value: 'babble', selected: s.voiceMode === 'babble' }, 'Gibberish babble'))),
       row('Pronunciation', el('button', { onclick: () => openPronunciation(this.ui) }, 'Words & emphasis…')),
+      row('Crouch', el('select', { onchange: (e) => { s.crouchMode = e.target.value; save(); } }, el('option', { value: 'toggle', selected: s.crouchMode !== 'hold' }, 'Toggle'), el('option', { value: 'hold', selected: s.crouchMode === 'hold' }, 'Hold'))),
+      row('Zoom', el('select', { onchange: (e) => { s.zoomMode = e.target.value; save(); } }, el('option', { value: 'toggle', selected: s.zoomMode !== 'hold' }, 'Toggle'), el('option', { value: 'hold', selected: s.zoomMode === 'hold' }, 'Hold'))),
       row('Controls', el('button', { onclick: () => this.openControls() }, 'Key bindings…')),
       row('Fullscreen', el('button', { onclick: () => toggleFullscreen() }, 'Toggle (F11)')),
       el('div', { class: 'row' }, el('button', { onclick: () => m.close() }, 'Close'))), { title: 'Settings' });

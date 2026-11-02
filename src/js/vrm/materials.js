@@ -10,6 +10,13 @@ export const GLOBAL_UNIFORMS = {
   hvUvPos: { value: new THREE.Vector3() },
   hvUvDir: { value: new THREE.Vector3(0, 0, -1) },
   hvUvCos: { value: Math.cos(0.32) },
+  hvUvFall: { value: 0.25 }, // distance falloff (pen lights fade fast)
+  hvUvGain: { value: 1 },
+  hvUvFlood: { value: 0 }, // UV light switch: the whole box below glows
+  hvFloodMin: { value: new THREE.Vector3(-6, -1, 9) },
+  hvFloodMax: { value: new THREE.Vector3(6, 4, 21) },
+  hvScanOn: { value: 0 }, hvScanPos: { value: new THREE.Vector3() }, hvScanDir: { value: new THREE.Vector3(0, 0, -1) }, hvScanCos: { value: Math.cos(0.3) },
+  hvXrOn: { value: 0 }, hvXrPos: { value: new THREE.Vector3() }, hvXrDir: { value: new THREE.Vector3(0, 0, -1) }, hvXrCos: { value: Math.cos(0.075) },
   hvTime: { value: 0 },
 };
 
@@ -37,7 +44,9 @@ export function patchMaterial(material, kind, uniforms) {
   addGlowUniforms(u);
   material.userData.hv = u;
   material.userData.hvKind = kind;
-  material.customProgramCacheKey = () => 'hv-' + kind + (u.hvUw ? '-uw' : '');
+  // per-character values: irradiated (scanner glow), shower line (wet above), bath level (wet below)
+  if (['skin', 'cloth', 'hair'].includes(kind)) { u.hvRad = u.hvRad || { value: 0 }; u.hvWashLine = u.hvWashLine || { value: 100 }; u.hvBathLevel = u.hvBathLevel || { value: -100 }; }
+  material.customProgramCacheKey = () => 'hv2-' + kind + (u.hvUw ? '-uw' : '') + (u.hvSkinLayer ? '-sl' : '');
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = shader.vertexShader
@@ -48,13 +57,23 @@ export function patchMaterial(material, kind, uniforms) {
 varying vec3 vHvWorld;
 uniform float hvUvOn; uniform vec3 hvUvPos; uniform vec3 hvUvDir; uniform float hvUvCos; uniform float hvTime;
 uniform vec3 hvGlowColor;
+uniform float hvUvFall; uniform float hvUvGain; uniform float hvUvFlood; uniform vec3 hvFloodMin; uniform vec3 hvFloodMax;
+uniform float hvScanOn; uniform vec3 hvScanPos; uniform vec3 hvScanDir; uniform float hvScanCos;
+uniform float hvXrOn; uniform vec3 hvXrPos; uniform vec3 hvXrDir; uniform float hvXrCos;
 ${NOISE_GLSL}
 float hvUvSpot(){
   vec3 d = vHvWorld - hvUvPos; float dist = length(d);
   float c = dot(d / max(dist, 1e-4), hvUvDir);
-  return hvUvOn * smoothstep(hvUvCos, hvUvCos + 0.06, c) / (1.0 + dist * dist * 0.25);
+  float spot = hvUvOn * hvUvGain * smoothstep(hvUvCos, hvUvCos + 0.04, c) / (1.0 + dist * dist * hvUvFall);
+  vec3 inB = step(hvFloodMin, vHvWorld) * step(vHvWorld, hvFloodMax);
+  return max(spot, hvUvFlood * inB.x * inB.y * inB.z * 0.85);
 }
+float hvConeIn(vec3 p, vec3 dir, float cosA){ vec3 v = vHvWorld - p; return smoothstep(cosA, cosA + 0.01, dot(normalize(v), dir)); }
 `;
+    if (['skin', 'cloth', 'hair'].includes(kind)) decl += 'uniform float hvRad; uniform float hvWashLine; uniform float hvBathLevel;';
+    // X-ray beam: clothes and hair inside it are skipped (screen-door so the edge isn't hard)
+    const xrayCut = `if (hvXrOn > 0.5 && hvConeIn(hvXrPos, hvXrDir, hvXrCos) > 0.5 && hvHash(gl_FragCoord.xy) < 0.93) discard;`;
+    const radGlow = `totalEmissiveRadiance += vec3(0.62, 0.95, 0.12) * hvRad * hvScanOn * hvConeIn(hvScanPos, hvScanDir, hvScanCos) * 2.4;`;
     let colorCode = '';
     let roughCode = '';
     let emissiveCode = '';
@@ -65,15 +84,24 @@ float hvUvSpot(){
 uniform sampler2D hvFx; uniform sampler2D hvCond; uniform sampler2D hvGlow;
 uniform float hvFxOn; uniform float hvCondOn; uniform vec3 hvMakeup; uniform float hvWetAll;
 ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
+${u.hvSkinLayer ? 'uniform sampler2D hvSkinLayer;' : ''}
 `;
       colorCode = `
   vec2 hvUv = vMapUv;
   float hvTexL = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  ${u.hvSkinLayer ? `
+  // detail layer between the skin and the underwear, tinted to the skin tone
+  vec4 hvSL = texture2D(hvSkinLayer, hvUv);
+  float hvSkL = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  diffuseColor.rgb = mix(diffuseColor.rgb, hvSL.rgb * clamp(hvSkL / 0.72, 0.3, 1.15), hvSL.a);` : ''}
   vec4 hvC = texture2D(hvCond, hvUv) * hvCondOn;
   diffuseColor.rgb = mix(diffuseColor.rgb, hvC.rgb * mix(1.0, hvTexL, 0.5), hvC.a);
   vec4 hvF = texture2D(hvFx, hvUv);
   hvF.rgb *= hvFxOn;
-  float hvWet = max(hvF.a, hvWetAll);
+  // shower (wet from the top down) and bath (wet from the bottom up); grime rinses off behind the water line
+  float hvRinse = max(smoothstep(hvWashLine + 0.05, hvWashLine + 0.3, vHvWorld.y), smoothstep(hvBathLevel - 0.02, hvBathLevel - 0.15, vHvWorld.y));
+  hvF.rgb *= 1.0 - hvRinse;
+  float hvWet = max(max(hvF.a, hvWetAll), max(smoothstep(hvWashLine - 0.03, hvWashLine + 0.06, vHvWorld.y), step(vHvWorld.y, hvBathLevel)));
   diffuseColor.rgb = mix(diffuseColor.rgb, hvMakeup * mix(1.0, hvTexL, 0.7), clamp(hvF.b * 1.15, 0.0, 1.0));
   float hvUwMask = 0.0;
   ${u.hvUw ? `
@@ -97,6 +125,7 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
 `;
       emissiveCode = `
   totalEmissiveRadiance += hvGlowColor * texture2D(hvGlow, vMapUv).r * hvUvSpot() * 3.0;
+  ${radGlow}
   // cosmetics fluoresce a pale blue-white under UV, giving away concealed skin
   totalEmissiveRadiance += vec3(0.62, 0.7, 1.0) * clamp(texture2D(hvFx, vMapUv).b * hvFxOn * 1.3, 0.0, 1.0) * hvUvSpot() * 1.8;
 `;
@@ -108,11 +137,14 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
 `;
     } else if (kind === 'hair') {
       decl += 'uniform float hvHairWet;';
-      colorCode = 'diffuseColor.rgb *= 1.0 - hvHairWet * 0.38;';
-      roughCode = 'roughnessFactor = mix(roughnessFactor, 0.22, hvHairWet);';
+      colorCode = `${xrayCut}
+  float hvHW = max(hvHairWet, max(step(hvWashLine, vHvWorld.y), step(vHvWorld.y, hvBathLevel)));
+  diffuseColor.rgb *= 1.0 - hvHW * 0.38;`;
+      roughCode = 'roughnessFactor = mix(roughnessFactor, 0.22, hvHW);';
     } else if (kind === 'cloth') {
       decl += 'uniform sampler2D hvOverlay; uniform sampler2D hvGlow; uniform float hvOverlayOn; uniform float hvHighlight; uniform float hvClothWet; uniform float hvWetDark; uniform float hvWetSheer;';
       colorCode = `
+  ${xrayCut}
   #ifdef USE_NORMALMAP
   diffuseColor.rgb *= 0.86 + 0.28 * texture2D(normalMap, vNormalMapUv).a;
   #endif
@@ -127,6 +159,7 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
       emissiveCode = `
   totalEmissiveRadiance += hvGlowColor * texture2D(hvGlow, vMapUv).r * hvUvSpot() * 3.0 * hvOverlayOn;
   totalEmissiveRadiance += vec3(0.25, 0.55, 0.9) * hvHighlight * (0.55 + 0.45 * sin(hvTime * 6.0));
+  ${radGlow}
 `;
     } else if (kind === 'iris') {
       decl += 'uniform vec2 hvEyeC0; uniform vec2 hvEyeC1; uniform vec2 hvEyeR0; uniform vec2 hvEyeR1; uniform float hvPupil;';

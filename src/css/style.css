@@ -135,3 +135,10 @@ kbd { background: #2a3237; border: 1px solid #44525b; border-bottom-width: 2px; 
 .pron-chip:hover { background: #24303a; }
 .pron-chip.auto { border-color: var(--accent); }
 .pron-chip.chosen { background: var(--accent); color: #111; }
+.shop-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.shop-row .shop-next { color: var(--accent); }
+.shop-row button { white-space: nowrap; }
+.held-card { position: fixed; left: 28px; top: 50%; transform: translateY(-50%) rotate(-2.5deg); width: min(420px, 34vw); z-index: 6; filter: drop-shadow(0 10px 24px rgba(0,0,0,.7)); pointer-events: none; display: none; }
+.held-card canvas { width: 100%; border-radius: 12px; display: block; }
+.scan-out { min-height: 1.4em; font-weight: bold; margin-top: 6px; font-family: Consolas, monospace; }
+.search-bar { height: 12px; background: #222; border-radius: 3px; overflow: hidden; } .search-bar > div { height: 100%; width: 0; background: var(--accent); transition: width .12s linear; }

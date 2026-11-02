@@ -11,7 +11,14 @@ export const TOOLS = [
   { id: 'uv', key: '3', label: 'UV Lamp' },
   { id: 'geiger', key: '4', label: 'Geiger Counter' },
   { id: 'hose', key: '5', label: 'Hose' },
+  { id: 'detector', key: '6', label: 'Metal detector' },
 ];
+const LABELS = {
+  flashlight: (lv) => (lv.light >= 1 ? 'Flashlight' : 'Pen light'),
+  uv: (lv) => (lv.light >= 3 ? 'UV Lamp' : 'UV pen light'),
+  geiger: (lv) => (lv.geiger >= 3 ? 'Rad Scanner' : 'Geiger Counter'),
+  detector: (lv) => (lv.search >= 3 ? 'X-ray Gun' : 'Metal detector'),
+};
 
 function geigerScreen() {
   const c = document.createElement('canvas'); c.width = 256; c.height = 128;
@@ -40,6 +47,11 @@ export class Player {
     this.carrying = null;
     this.stepDist = 0;
     this.zoom = 0;
+    this.crouchOn = false; this.zoomOn = false;
+    this.crouchToggle = true; this.zoomToggle = true;
+    this.lv = { light: 3, geiger: 2, id: 1, wash: 1, search: 1, cure: 4, room: 1 };
+    this.detectFn = () => 0;
+    this.detectAcc = 0;
     this.radiationFn = () => 0;
     this.geigerReading = 0;
     this.geigerAcc = 0;
@@ -54,12 +66,19 @@ export class Player {
 
   _bind() {
     const dom = this.engine.renderer.domElement;
-    window.addEventListener('keydown', (e) => { this.keys[e.code] = true; if ((e.ctrlKey || e.metaKey) && document.pointerLockElement && e.code !== 'F11' && e.code !== 'F12') e.preventDefault(); });
+    window.addEventListener('keydown', (e) => {
+      if (!e.repeat && this.enabled) {
+        if (e.code === KB.crouch && this.crouchToggle) this.crouchOn = !this.crouchOn;
+        if (e.code === KB.zoom && this.zoomToggle) this.zoomOn = !this.zoomOn;
+      }
+      this.keys[e.code] = true;
+      if ((e.ctrlKey || e.metaKey) && document.pointerLockElement && e.code !== 'F11' && e.code !== 'F12') e.preventDefault();
+    });
     window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
     window.addEventListener('blur', () => { this.keys = {}; this.mouse.left = this.mouse.right = false; });
     dom.addEventListener('mousedown', (e) => {
       if (e.button === 0) this.mouse.left = true;
-      if (e.button === 2) this.mouse.right = true;
+      if (e.button === 2) { this.mouse.right = true; if (this.zoomToggle && this.enabled) this.zoomOn = !this.zoomOn; }
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.mouse.left = false;
@@ -131,6 +150,14 @@ export class Player {
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.022, 0.2, 14), new THREE.MeshStandardMaterial({ color: 0xb8a018, metalness: 0.6, roughness: 0.35 })); barrel.rotation.x = Math.PI / 2; barrel.position.z = -0.06; hz.add(barrel);
     const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.04, 14), new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.9, roughness: 0.25 })); tip.rotation.x = Math.PI / 2; tip.position.z = -0.17; hz.add(tip);
     T.hose = hz;
+    // metal detector wand (the X-ray gun reuses it with a different head)
+    const dt2 = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.36, 10), metal); shaft.rotation.x = Math.PI / 2; shaft.position.z = -0.12; dt2.add(shaft);
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.12, 12), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.8 })); handle.rotation.x = Math.PI / 2; handle.position.z = 0.08; dt2.add(handle);
+    const coilM = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.012, 8, 24), yellow); coilM.position.z = -0.32; dt2.add(coilM);
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 8), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff3322, emissiveIntensity: 0.2 })); led.position.set(0, 0.022, 0.05); dt2.add(led);
+    dt2.userData.led = led; dt2.userData.coil = coilM;
+    T.detector = dt2;
     // bundle (carried clothes)
     const bundle = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.1, 0.22, 4, 2, 4), new THREE.MeshStandardMaterial({ color: 0x777777, roughness: 0.95 }));
     const p = bundle.geometry.attributes.position;
@@ -154,7 +181,24 @@ export class Player {
     this._m4 = new THREE.Matrix4();
   }
 
+  // equipment levels from the upgrade tracks
+  setUpgrades(lv) {
+    this.lv = { ...lv };
+    // the X-ray gun: blue emitter head instead of the detector coil
+    const coil = this.T.detector.userData.coil;
+    coil.material = coil.material.clone(); coil.material.color.set(lv.search >= 3 ? 0x3a7bd5 : 0xc9a227);
+    coil.material.emissive = new THREE.Color(lv.search >= 3 ? 0x2266ff : 0x000000); coil.material.emissiveIntensity = lv.search >= 3 ? 0.8 : 0;
+    if (!this.hasTool(this.tool)) this.tool = 'hand';
+  }
+  owns(id) {
+    const lv = this.lv;
+    return id === 'hand' || id === 'flashlight' || (id === 'uv' && lv.light >= 2) || (id === 'geiger' && lv.geiger >= 1) || (id === 'hose' && lv.wash >= 1) || (id === 'detector' && lv.search >= 2);
+  }
+  hasTool(id) { return this.owns(id) && (id !== 'hose' || this.hasHose); }
+  toolLabel(id) { return LABELS[id] ? LABELS[id](this.lv) : TOOLS.find((t) => t.id === id)?.label || id; }
+
   setTool(id) {
+    if (!this.owns(id)) return false;
     if (id === 'hose' && !this.hasHose) return false;
     if (this.carrying && id !== 'hand') return false;
     this.tool = id;
@@ -232,8 +276,11 @@ export class Player {
     const moved = Math.hypot(this.pos.x - before.x, this.pos.z - before.z);
     this.stepDist += moved;
     if (this.stepDist > 0.75) { this.stepDist = 0; audio.step(); }
-    this.crouch = damp(this.crouch, moving && k[KB.crouch] ? 1 : 0, 10, dt);
-    this.zoom = damp(this.zoom, moving && this.mouse.right ? 1 : 0, 10, dt);
+    if (!moving) { this.crouchOn = false; this.zoomOn = false; }
+    const crouching = this.crouchToggle ? this.crouchOn : k[KB.crouch];
+    const zooming = this.zoomToggle ? this.zoomOn : (this.mouse.right || k[KB.zoom]);
+    this.crouch = damp(this.crouch, moving && crouching ? 1 : 0, 10, dt);
+    this.zoom = damp(this.zoom, moving && zooming ? 1 : 0, 10, dt);
     const fov = 70 - this.zoom * 44;
     if (Math.abs(this.camera.fov - fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     const bob = Math.sin(performance.now() * 0.009) * Math.min(1, this.vel.length() / 2) * 0.018;
@@ -244,12 +291,45 @@ export class Player {
     const tool = this.carrying ? (this.carrying.model ? 'model' : 'bundle') : this.tool;
     for (const [id, o] of Object.entries(this.T)) o.visible = id === tool;
     const sway = Math.sin(performance.now() * 0.002) * 0.004;
-    for (const id of ['flashlight', 'uv', 'geiger', 'hose']) this.T[id].position.set(0.22, -0.2 + sway, -0.38);
+    for (const id of ['flashlight', 'uv', 'geiger', 'hose', 'detector']) this.T[id].position.set(0.22, -0.2 + sway, -0.38);
     this.T.geiger.position.set(0.18, -0.2 + sway, -0.36);
-    this.flashLight.intensity = tool === 'flashlight' ? 14 : 0;
-    this.uvLight.intensity = tool === 'uv' ? 5 : 0;
+    const lv = this.lv;
+    // pen lights are small and weak; the full-size ones are bright and wide
+    const pen = lv.light < 1, uvPen = lv.light < 3;
+    this.T.flashlight.scale.setScalar(pen ? 0.6 : 1);
+    this.T.uv.scale.setScalar(uvPen ? 0.6 : 1);
+    this.flashLight.intensity = tool === 'flashlight' ? (pen ? 2.2 : 14) : 0;
+    this.flashLight.angle = pen ? 0.13 : 0.42;
+    this.flashLight.distance = pen ? 2.4 : 9;
+    this.uvLight.intensity = tool === 'uv' ? (uvPen ? 1.4 : 5) : 0;
+    this.uvLight.angle = uvPen ? 0.13 : 0.32;
+    this.uvLight.distance = uvPen ? 2.2 : 6;
     const U = GLOBAL_UNIFORMS;
     U.hvUvOn.value = tool === 'uv' ? 1 : 0;
+    U.hvUvCos.value = Math.cos(uvPen ? 0.13 : 0.32);
+    U.hvUvFall.value = uvPen ? 2.6 : 0.25;
+    U.hvUvGain.value = uvPen ? 0.75 : 1;
+    // radiation scanner and X-ray beams (cones from the held tool)
+    const scan = tool === 'geiger' && lv.geiger >= 3, xray = tool === 'detector' && lv.search >= 3;
+    U.hvScanOn.value = scan ? 1 : 0;
+    U.hvXrOn.value = xray ? 1 : 0;
+    if (scan || xray) {
+      this.camera.updateMatrixWorld();
+      const o = this.camera.getWorldPosition(new THREE.Vector3()), d = this.forward();
+      (scan ? U.hvScanPos : U.hvXrPos).value.copy(o);
+      (scan ? U.hvScanDir : U.hvXrDir).value.copy(d);
+    }
+    // metal detector / X-ray: beeps faster the closer the wand is to metal
+    if (tool === 'detector') {
+      const probe = this.T.detector.localToWorld(new THREE.Vector3(0, 0, -0.32));
+      const m = this.detectFn(probe, this.forward());
+      this.detectReading = m;
+      if (m > 0.02 && lv.search < 3) {
+        this.detectAcc += dt * (1 + m * 14);
+        if (this.detectAcc > 1) { this.detectAcc = 0; audio.tone({ freq: 1200 + m * 800, dur: 0.05, type: 'square', gain: 0.035 }); }
+      }
+      this.T.detector.userData.led.material.emissiveIntensity = 0.2 + Math.min(1, m) * 2.5;
+    }
     if (tool === 'uv') {
       this.camera.updateMatrixWorld();
       this.uvLight.getWorldPosition(U.hvUvPos.value);
@@ -259,7 +339,7 @@ export class Player {
     // geiger
     if (tool === 'geiger') {
       const probe = this.T.geiger.localToWorld(new THREE.Vector3(0.03, -0.01, -0.18));
-      const target = this.radiationFn(probe, this.forward());
+      const target = this.radiationFn(probe, this.forward(), lv.geiger);
       this.geigerReading = damp(this.geigerReading, target, 3, dt);
       const cps = 0.6 + this.geigerReading * 18;
       this.geigerAcc += dt * cps;

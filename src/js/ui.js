@@ -30,15 +30,26 @@ export class UI {
   dayInfo(html) { this.dayEl.innerHTML = html || ''; }
   reticle(mode) { this.cross.classList.toggle('hose', mode === 'hose'); }
   toolbar(player) {
-    const key = TOOLS.map((t) => `${t.id}:${player.tool === t.id}:${t.id === 'hose' ? player.hasHose : 1}:${player.carrying?.name || ""}`).join('|');
+    const key = TOOLS.map((t) => `${t.id}:${player.tool === t.id}:${player.hasTool(t.id)}:${t.id === 'hose' ? player.hasHose : 1}:${player.toolLabel(t.id)}:${player.carrying?.name || ""}`).join('|');
     if (key === this._tbKey) return;
     this._tbKey = key;
     this.toolbarEl.innerHTML = '';
     for (const t of TOOLS) {
-      const disabled = (t.id === 'hose' && !player.hasHose) || (player.carrying && t.id !== 'hand');
-      this.toolbarEl.append(el('div', { class: 'tool' + (player.tool === t.id && !player.carrying ? ' active' : '') + (disabled ? ' disabled' : '') }, el('b', {}, t.key), t.label));
+      if (!player.owns(t.id)) continue;
+      const disabled = !player.hasTool(t.id) || (player.carrying && t.id !== 'hand');
+      this.toolbarEl.append(el('div', { class: 'tool' + (player.tool === t.id && !player.carrying ? ' active' : '') + (disabled ? ' disabled' : '') }, el('b', {}, t.key), player.toolLabel(t.id)));
     }
     if (player.carrying) this.toolbarEl.append(el('div', { class: 'tool active' }, el('b', {}, '✋'), 'Carrying: ' + player.carrying.name));
+  }
+  // the ID card held up beside the window while using the intercom
+  heldCard(src) {
+    if (!this.heldEl) { this.heldEl = el('div', { class: 'held-card' }); document.body.append(this.heldEl); }
+    this.heldEl.innerHTML = '';
+    this.heldEl.style.display = src ? 'block' : 'none';
+    if (!src) return;
+    const c = el('canvas', { width: src.width, height: src.height });
+    c.getContext('2d').drawImage(src, 0, 0);
+    this.heldEl.append(c);
   }
   subtitle(who, text, seconds = 3.5) {
     clearTimeout(this.subTimer);

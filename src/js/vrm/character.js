@@ -8,6 +8,16 @@ import { cleanBodyTexture } from './underwear.js';
 import { Surface, makeLayer } from './fx.js';
 import { Animator, Face } from './pose.js';
 
+// skin detail layer (body UVs), drawn between the skin and the underwear
+let skinLayerTex = null;
+function skinLayer() {
+  if (!skinLayerTex) {
+    skinLayerTex = new THREE.TextureLoader().load('../assets/underwear/skin-layer.webp');
+    skinLayerTex.flipY = false; skinLayerTex.colorSpace = THREE.SRGBColorSpace; skinLayerTex.anisotropy = 4;
+  }
+  return skinLayerTex;
+}
+
 const cleanedCache = new Map();
 function cleanedBody(modelId, image, threshold) {
   const key = modelId + '|' + threshold;
@@ -81,6 +91,9 @@ export class Character {
     this.clothSurf = new Map();
     this.skinMats = [];
     this.hairMats = [];
+    // shared by all of this character's materials: shower line / bath level, skin radiation glow
+    this.waterU = { hvWashLine: { value: 100 }, hvBathLevel: { value: -100 } };
+    this.skinRad = { value: 0 };
     this.irisMats = [];
     this.scleraMats = [];
     this.browMats = [];
@@ -135,13 +148,14 @@ export class Character {
           hvFx: { value: surf.layers.fx.tex }, hvCond: { value: surf.layers.cond.tex }, hvGlow: { value: surf.layers.glow.tex },
           hvFxOn: { value: fxOn ? 1 : 0 }, hvCondOn: { value: 1 }, hvMakeup: { value: new THREE.Color(1, 0.85, 0.75) }, hvWetAll: { value: 0 },
         };
-        if (big) { u.hvUw = { value: opts.uwTexture || BLANK_TEXTURE }; u.hvUwOn = { value: opts.uwTexture ? 1 : 0 }; }
+        if (big) { u.hvUw = { value: opts.uwTexture || BLANK_TEXTURE }; u.hvUwOn = { value: opts.uwTexture ? 1 : 0 }; u.hvSkinLayer = { value: skinLayer() }; }
+        Object.assign(u, this.waterU, { hvRad: this.skinRad });
         patchMaterial(mat, 'skin', u);
         this.skinMats.push(mat);
         if (big) this.surfBody = surf; else this.surfFace = surf;
         surf.role = role;
       } else if (role === 'hair') {
-        patchMaterial(mat, 'hair', { hvHairWet: { value: 0 } });
+        patchMaterial(mat, 'hair', { hvHairWet: { value: 0 }, ...this.waterU });
         this.hairMats.push(mat);
       } else if (role === 'eyeIris') {
         this.irisMats.push(mat);
@@ -205,7 +219,7 @@ export class Character {
       const mat = baseMat.clone();
       mat.userData = { ...baseMat.userData, uvDensity: uvDensity(src, g.tris) };
       applyFabric(mat, g.fabric);
-      patchMaterial(mat, 'cloth', { hvOverlay: { value: surf.layers.ov.tex }, hvGlow: { value: surf.layers.glow.tex }, hvOverlayOn: { value: 1 }, hvHighlight: { value: 0 }, hvClothWet: { value: 0 }, hvWetDark: { value: 0 }, hvWetSheer: { value: 0 } });
+      patchMaterial(mat, 'cloth', { hvOverlay: { value: surf.layers.ov.tex }, hvGlow: { value: surf.layers.glow.tex }, hvOverlayOn: { value: 1 }, hvHighlight: { value: 0 }, hvClothWet: { value: 0 }, hvWetDark: { value: 0 }, hvWetSheer: { value: 0 }, ...this.waterU, hvRad: { value: 0 } });
       const sm = new THREE.SkinnedMesh(geom, mat);
       sm.bind(mesh.skeleton, mesh.bindMatrix);
       sm.morphTargetInfluences = mesh.morphTargetInfluences;
@@ -328,6 +342,15 @@ export class Character {
       mat.needsUpdate = true;
     }
   }
+
+  // radiation scanner glow: body (irradiated) and individual garments (radioactive dust)
+  setRadiation(body, itemIds = []) {
+    this.skinRad.value = body ? 1 : 0;
+    for (const it of this.items.values()) for (const m of it.meshes) if (m.material.userData.hv?.hvRad) m.material.userData.hv.hvRad.value = itemIds.includes(it.id) ? 1 : 0;
+  }
+  // world height of the shower's water line (wet above it) / the bath water (wet below it)
+  setWashLine(y) { this.waterU.hvWashLine.value = y; }
+  setBathLevel(y) { this.waterU.hvBathLevel.value = y; }
 
   setWetAll(v) { for (const m of this.skinMats) m.userData.hv.hvWetAll.value = v; }
   setHairWet(w) {

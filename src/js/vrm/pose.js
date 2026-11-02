@@ -72,6 +72,24 @@ export const POSES = {
     leftFoot: [0.4, 0, 0], rightFoot: [0.4, 0, 0],
     neck: [0.12, 0, 0], head: [0.15, 0, 0],
   },
+  // lying on the back (cots): arms resting by the sides, legs straight
+  lie: {
+    ...relaxedHands(0.25),
+    leftUpperArm: [0.0, 0.05, -1.32], rightUpperArm: [0.0, -0.05, 1.32],
+    leftLowerArm: [0, -0.15, 0], rightLowerArm: [0, 0.15, 0],
+    leftUpperLeg: [-0.04, 0, 0.04], rightUpperLeg: [-0.04, 0, -0.04],
+    leftLowerLeg: [0.08, 0, 0], rightLowerLeg: [0.08, 0, 0], leftFoot: [-0.35, 0, 0], rightFoot: [-0.35, 0, 0],
+    head: [0.12, 0, 0],
+  },
+  // reclining in the bathtub: legs stretched out, knees a little bent
+  recline: {
+    ...relaxedHands(0.3),
+    leftUpperArm: [0.15, 0.2, -1.25], rightUpperArm: [0.15, -0.2, 1.25],
+    leftLowerArm: [0, -0.3, 0], rightLowerArm: [0, 0.3, 0],
+    leftUpperLeg: [-1.25, 0, 0.06], rightUpperLeg: [-1.15, 0, -0.06],
+    leftLowerLeg: [0.45, 0, 0], rightLowerLeg: [0.3, 0, 0],
+    head: [0.35, 0, 0], neck: [0.15, 0, 0],
+  },
   turnAway: {},
 };
 

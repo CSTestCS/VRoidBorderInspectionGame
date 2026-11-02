@@ -60,6 +60,8 @@ export const REACT = {
   hoseStart: ['Ah! ...Oh. It is warm.', 'Whoa - hey! ...okay, that is actually nice.', 'Hey!', 'Ack! Warn me next time!', 'Eek! ...huh, warm water.', 'Gah! At least it is warm.', 'Oh! That is... warmer than I expected.', 'Mm. Warm water. I forgot what that felt like.'],
   hoseDressed: ['Hey! I am still dressed!', 'My clothes! What are you doing?!', 'Seriously? I have not even undressed yet!', 'Stop it! You are soaking everything!', 'Is this part of the procedure?!', 'Ugh, now it is all wet and heavy.', 'Hey - cut that out!'],
   hoseDressedAgain: ['I just got my clothes back!', 'Oh, come on - they were finally dry!', 'Really? Again?!', 'What is wrong with you?', 'Now I have to walk around soaking wet!', 'Was that necessary?'],
+  bathStart: ['A bath? A real bath?', 'Oh. Warm water... this is nice.', 'Lie down in there? Okay...', 'I have not had a bath in years.'],
+  showerStart: ['Whoa - from above!', 'Ah! ...oh, that is warm.', 'A shower! Okay, okay.', 'Eek! Warn me next time!'],
   hoseExpect: ['Warm water. I have dreamed about this.', 'Go ahead. I am ready.', 'Ahh. That is nice and warm.', 'Mm, warm. Thank you.', 'Okay, scrub away.', 'First hot water in months.'],
   // sent from the window to decontamination
   whereGo: ['Okay. Where do I go?', 'Which way?', 'Through there?', 'Where now?', 'Uh... which door?', 'Where are you sending me?', 'Is it that door?', 'Okay... then what?', 'Decon? What is that?', 'Do I just follow the corridor?', 'Wait, where do I go now?', 'And now?'],

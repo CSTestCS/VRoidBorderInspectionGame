@@ -1,6 +1,7 @@
 // Core game controller: days, visitors, stations, decisions and scoring.
 import * as THREE from 'three';
-import { World, SPOTS, TANK_POS, PATHS, tankApproach } from './world.js';
+import { World, SPOTS, PATHS } from './world.js';
+import { TRACKS, START_LEVELS, LEGACY_LEVELS } from './upgrades.js';
 import { Player } from './player.js';
 import { audio } from './audio.js';
 import { makeVoiceProfile } from './voice.js';
@@ -9,8 +10,8 @@ import { RNG, el, clamp, damp, sleep } from './util.js';
 import { generateVisitor, buildVisitorCharacter, correctOutcome, measureDirt, paintClothing, cureCharacter, PROBLEM_LABEL, CURRENT_YEAR } from './visitor.js';
 import { renderPortrait, renderPortraitFrom, compileGradually } from './portrait.js';
 import { drawCardFront, drawCardBack, drawCardUV, makeCardMesh, fmtDate } from './idcard.js';
-import { patchMaterial } from './vrm/materials.js';
-import { OBJECTS } from './objects.js';
+import { patchMaterial, GLOBAL_UNIFORMS } from './vrm/materials.js';
+import { OBJECTS, buildObject } from './objects.js';
 import { ObjectViewer } from './objectViewer.js';
 import { openRulebook } from './rulebook.js';
 import { REACT, GREETINGS, HANDOVER, NAME_HESITATE, NO_CONTRABAND, NO_CONTRABAND_LIE, NO_BITE, NO_BITE_LIE, INTERRO_Q, INTERRO_ANSWERS, OVERHOSE } from './data.js';
@@ -24,6 +25,7 @@ import { Proxies } from './proxies.js';
 // visitors' walking pace (m/s)
 const WALK = 1.5;
 const CONTAMINATED = ['bio', 'bioUV', 'rad', 'chem', 'lice'];
+const METAL = new Set(['knife', 'pistol', 'knuckles', 'shiv', 'keys', 'can', 'coins', 'compass']);
 
 export class Game {
   constructor(app) {
@@ -38,7 +40,9 @@ export class Game {
     this.queue = [];
     this.run = null;
     this.interro = null;
-    this.tanks = [null, null, null, null];
+    this.tanks = [];
+    this.owned = { ...START_LEVELS }; // purchased upgrades
+    this.lv = { ...START_LEVELS }; // installed (overnight upgrades wait for the next day)
     this.premadeSeen = new Set();
     this.walkers = new Set(); // characters walking somewhere on their own
     this.idCompare = {};
@@ -61,8 +65,11 @@ export class Game {
     this.world = new World(scene, this.app.settings);
     this.player = new Player(this.engine, this.world);
     this.player.sensitivity = this.app.settings.sensitivity ?? 1;
+    this.player.crouchToggle = this.app.settings.crouchMode !== 'hold';
+    this.player.zoomToggle = this.app.settings.zoomMode !== 'hold';
     this.player.invertY = !!this.app.settings.invertY;
-    this.player.radiationFn = (p) => this.radiationAt(p);
+    this.player.radiationFn = (p, fwd, level) => this.radiationAt(p, level);
+    this.player.detectFn = (p) => this.metalNear(p);
     this.player.extraColliders = () => (this.run?.ch && this.run.phase !== 'gone' ? [{ x: this.run.ch.root.position.x, z: this.run.ch.root.position.z, r: 0.25 }] : []);
     this.player.onSpray = (o, d, dt) => this.onSpray(o, d, dt);
     this.player.aimDistanceFn = (origin, dir) => {
@@ -141,6 +148,7 @@ export class Game {
   // ---------------------------------------------------------------- lifecycle
   async startDay(dayNumber, { count = null, preset = null, resume = null } = {}) {
     this.day = dayNumber;
+    this.dayOver = false;
     this.dayLog = resume?.dayLog || [];
     const rng = new RNG((Date.now() ^ (dayNumber * 7919)) >>> 0);
     const n = count ?? (dayNumber === 1 ? rng.int(3, 4) : rng.int(3, 7));
@@ -154,6 +162,8 @@ export class Game {
     this.prepared = null;
     this.prepareNext();
     if (!resume) for (const t of this.tanks) if (t) t.checkedToday = false;
+    this.applyUpgrades();
+    if (this.world.uvMode) { this.world.setDeconLighting(false); GLOBAL_UNIFORMS.hvUvFlood.value = 0; }
     await this.loadTankCharacters();
     if (resume?.interro) await this.restoreInterro(resume.interro);
     this.player.teleport(SPOTS.playerStart, 0, -0.05);
@@ -176,8 +186,74 @@ export class Game {
     this.premadeSeen.add(pick.id);
   }
 
+  // Install purchased upgrades: rebuild the ward and equipment, re-seat patients in beds.
+  applyUpgrades() {
+    this.lv = { ...this.owned };
+    const patients = this.tanks.filter(Boolean);
+    this.world.applyUpgrades(this.lv);
+    this.player.setUpgrades?.(this.lv);
+    const beds = this.world.beds;
+    this.tanks = beds.map(() => null);
+    patients.slice(0, beds.length).forEach((p, i) => { this.tanks[i] = p; });
+    this.registerBeds();
+    for (let i = 0; i < this.tanks.length; i++) if (this.tanks[i]?.ch) this.placeInTank(this.tanks[i], i);
+  }
+  // after the training shift: basic kit, no money, empty ward
+  resetForNewGame() {
+    for (const t of this.tanks) t?.ch?.dispose();
+    this.tanks = [];
+    this.owned = { ...START_LEVELS };
+    this.credits = 0;
+    this.premadeSeen = new Set();
+  }
+
+  // ---------------------------------------------------------------- upgrades shop
+  openShop() {
+    const body = el('div', { class: 'shop' });
+    const render = () => {
+      body.innerHTML = '';
+      body.append(el('p', {}, 'Credits: ', el('b', { class: this.credits < 0 ? 'bad' : 'ok' }, String(this.credits)), el('span', { class: 'muted' }, ' · items marked ☾ are installed overnight (ready next shift).')));
+      for (const [key, tr] of Object.entries(TRACKS)) {
+        const own = this.owned[key], inst = this.lv[key];
+        const cur = tr.levels[own], next = tr.levels[own + 1];
+        const pending = own > inst;
+        let block = null;
+        if (next && key === 'cure') {
+          // a new tank replaces two cots: make sure nobody would lose their bed
+          const cap = 20 - Math.min(10, own + 1);
+          const occ = this.tanks.filter(Boolean).length;
+          if (own + 1 <= 10 && occ > cap) block = 'Free a bed first: the ward is too full to remove two cots.';
+        }
+        const row = el('div', { class: 'shop-row' },
+          el('div', {}, el('b', {}, tr.name), el('div', { class: 'muted' }, `Now: ${cur.name}${pending ? ` (☾ ${tr.levels[own].name} installs overnight)` : ''}`),
+            next ? el('div', { style: { marginTop: '4px' } }, el('span', { class: 'shop-next' }, `Next: ${next.name}${next.overnight ? ' ☾' : ''}`), ' — ', next.desc) : el('div', { class: 'ok', style: { marginTop: '4px' } }, 'Fully upgraded.'),
+            block ? el('div', { class: 'warn' }, block) : null),
+          next ? el('button', { class: 'primary', disabled: this.credits < next.price || !!block, onclick: () => this.buyUpgrade(key, render) }, `Buy · ${next.price} cr`) : el('span'));
+        body.append(row);
+      }
+    };
+    render();
+    this.ui.modal(el('div', {}, body), { title: 'Supply Terminal — Equipment Upgrades', cls: 'wide' });
+    this.emit('shopOpened');
+  }
+  buyUpgrade(key, rerender) {
+    const tr = TRACKS[key], next = tr.levels[this.owned[key] + 1];
+    if (!next || this.credits < next.price) return;
+    this.credits -= next.price;
+    this.owned[key]++;
+    audio.good();
+    // tools take effect at once; installations wait for the night
+    if (!next.overnight) { this.lv[key] = this.owned[key]; this.world.applyUpgrades(this.lv); this.player.setUpgrades?.(this.lv); this.registerBeds(); }
+    this.ui.toast(next.overnight ? `${next.name} ordered — it will be installed overnight.` : `${next.name} acquired.`, 'good', 4);
+    this.updateHUD();
+    this.autosave();
+    rerender?.();
+  }
+
+  bedName(i) { const b = this.world.beds[i]; return b ? (b.kind === 'tank' ? `Tank ${i + 1}` : `Cot ${i + 1}`) : `Bed ${i + 1}`; }
+
   async loadTankCharacters() {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < this.tanks.length; i++) {
       const t = this.tanks[i];
       if (!t || t.ch) continue;
       t.ch = await buildVisitorCharacter(t.spec, this.modelsById, { lowRes: true });
@@ -186,19 +262,28 @@ export class Game {
   }
 
   placeInTank(t, i) {
-    const ch = t.ch;
+    const ch = t.ch, bed = this.world.beds[i];
     for (const it of ch.items.values()) if (!['underwear', 'fixed'].includes(it.category)) ch.setItemVisible(it.id, false);
-    ch.root.position.copy(TANK_POS[i]).add(new THREE.Vector3(0, 0.45, 0));
-    ch.root.rotation.y = -Math.PI / 2;
-    ch.animator.setPose('float');
-    ch.setFloating(true);
-    ch.setWetAll(1);
-    ch.setHairWet(1);
+    ch.root.rotation.order = 'YXZ';
+    ch.root.position.copy(bed.pos);
     ch.face.eyesClosed = 1;
     ch.face.setBase({ relaxed: 0.6 });
     ch.animator.lookTarget = null;
     ch.lookAt(null);
+    if (bed.kind === 'tank') {
+      ch.root.rotation.set(0, bed.ry, 0);
+      ch.animator.setPose('float');
+      ch.setFloating(true);
+      ch.setWetAll(1);
+      ch.setHairWet(1);
+    } else {
+      // on their back on a cot, with a cure drip
+      ch.root.rotation.set(-Math.PI / 2, bed.ry, 0);
+      ch.setFloating(false);
+      ch.animator.setPose('lie', true);
+    }
     ch.setLayers({ fx: 0.4 });
+    ch.setRadiation(t.spec.body.rad > 0 && t.level > 0);
     this.scene.add(ch.root);
   }
 
@@ -206,7 +291,7 @@ export class Game {
   updateHUD() {
     const remaining = this.queue.length + (this.run ? 1 : 0);
     const occ = this.tanks.filter(Boolean).length;
-    this.ui.dayInfo(`<b>DAY ${this.day}</b> · Year ${CURRENT_YEAR}<br>Visitors left: ${remaining}/${this.dayTotal}<br>Tanks occupied: ${occ}/4<br>Credits: <span class="${this.credits < 0 ? 'bad' : 'ok'}">${this.credits}</span>`);
+    this.ui.dayInfo(`<b>DAY ${this.day}</b> · Year ${CURRENT_YEAR}<br>Visitors left: ${remaining}/${this.dayTotal}<br>Ward beds: ${occ}/${this.tanks.length}<br>Credits: <span class="${this.credits < 0 ? 'bad' : 'ok'}">${this.credits}</span>`);
   }
   setObjective(html) { this.objectiveHTML = html; this.ui.objective(html); }
 
@@ -309,6 +394,7 @@ export class Game {
       const ch = ready.ch;
       run.ch = ch;
       run.portrait = ready.portrait;
+      ch.setRadiation(spec.body.rad > 0 && !spec.cured, Object.entries(spec.clothing).filter(([, k]) => k === 'rad').map(([id]) => id));
       ch.face.attitude = run.favor / 100;
       ch.root.position.copy(SPOTS.visitorSpawn);
       ch.root.rotation.y = 0;
@@ -455,6 +541,30 @@ export class Game {
     });
   }
 
+  // climb into a bed (or back out of it): cots tip the patient onto their back, tanks lift them in
+  moveIntoBed(ch, bed, entering) {
+    ch.root.rotation.order = 'YXZ';
+    const from = entering ? bed.aisle.clone() : bed.pos.clone(), to = entering ? bed.pos.clone() : bed.aisle.clone();
+    const ry0 = entering ? ch.root.rotation.y : bed.ry, ry1 = entering ? bed.ry : bed.ry + Math.PI;
+    const tilt = bed.kind === 'cot' ? -Math.PI / 2 : 0;
+    const x0 = entering ? 0 : tilt, x1 = entering ? tilt : 0;
+    if (bed.kind === 'cot') ch.animator.setPose(entering ? 'lie' : 'idle');
+    let t = 0;
+    let dy = ry1 - ry0; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+    return new Promise((res) => {
+      ch.glide = (dt) => {
+        t = Math.min(1, t + dt / 1.8);
+        const k = t * t * (3 - 2 * t);
+        // turn first, then move and tip over
+        const kt = Math.min(1, k * 2.2), km = Math.max(0, (k - 0.25) / 0.75);
+        ch.root.rotation.y = ry0 + dy * kt;
+        ch.root.position.lerpVectors(from, to, km);
+        ch.root.rotation.x = x0 + (x1 - x0) * km;
+        if (t >= 1) { ch.glide = null; res(); }
+      };
+    });
+  }
+
   walkTo(ch, target, speed = WALK) {
     if (ch.spec) ch.animator.clipName = ch.spec.sex === 'male' ? 'male' : 'female';
     if (!ch.animator.onStep) ch.animator.onStep = () => audio.step();
@@ -517,15 +627,30 @@ export class Game {
     const setStatus = () => { status.textContent = `Viewing ${side}${uv ? ' under UV light' : ''}. Stamp: ${run.idStamp || 'none'}`; };
     setStatus();
     const flip = () => { side = side === 'front' ? 'back' : 'front'; draw(); setStatus(); audio.click(); };
-    const toggleUV = () => { uv = !uv; if (uv) { run.uvUsedOnCard = true; this.emit('cardUV'); } draw(); setStatus(); audio.click(); };
-    const content = el('div', { class: 'card-view' }, cv, status,
+    const hasUV = this.lv.id >= 1, hasScan = this.lv.id >= 2;
+    const toggleUV = () => { if (!hasUV) { this.ui.toast('You have no UV seal checker. Buy one at the supply terminal.', 'warn'); return; } uv = !uv; if (uv) { run.uvUsedOnCard = true; this.emit('cardUV'); } draw(); setStatus(); audio.click(); };
+    const scanOut = el('div', { class: 'scan-out' });
+    // the scanner tells a real card from a counterfeit, not whose card it is
+    const scan = () => {
+      audio.tone({ freq: 880, dur: 0.12, type: 'square', gain: 0.05 });
+      scanOut.textContent = 'Scanning…'; scanOut.className = 'scan-out';
+      setTimeout(() => {
+        const fake = run.spec.problems.includes('forgedSeal');
+        run.idScanned = true;
+        scanOut.textContent = fake ? 'COUNTERFEIT CARD — security features do not verify.' : 'GENUINE CARD — security features verified. (Does not confirm the holder.)';
+        scanOut.className = 'scan-out ' + (fake ? 'bad' : 'ok');
+        if (fake) audio.error(); else audio.good();
+      }, 700);
+    };
+    const content = el('div', { class: 'card-view' }, cv, status, scanOut,
       el('div', { class: 'row' },
         el('button', { onclick: flip }, 'Flip card (F)'),
-        el('button', { onclick: toggleUV, style: { borderColor: '#9b6bff' } }, 'UV lamp (U)'),
+        hasUV ? el('button', { onclick: toggleUV, style: { borderColor: '#9b6bff' } }, 'UV seal checker (U)') : null,
+        hasScan ? el('button', { onclick: scan, style: { borderColor: '#44ccff' } }, 'Scan card (S)') : null,
         el('button', { onclick: () => m.close() }, `Close (${keyName(KB.idcard)} / Esc)`)),
       el('p', { class: 'muted' }, 'Compare the portrait, name and details with the visitor. Use the height chart beside them and look at their eyes (hold right mouse to zoom).'));
     const m = this.ui.modal(content, { side: true, title: 'Identity Card' });
-    m.keys = (e) => { if (e.code === 'KeyF') flip(); if (e.code === 'KeyU') toggleUV(); if (e.code === KB.idcard) m.close(); };
+    m.keys = (e) => { if (e.code === 'KeyF') flip(); if (e.code === 'KeyU') toggleUV(); if (e.code === 'KeyS' && hasScan) scan(); if (e.code === KB.idcard) m.close(); };
   }
 
   openIntercom() {
@@ -577,7 +702,9 @@ export class Game {
       }, q));
     }
     const m = this.ui.modal(el('div', {}, el('p', { class: 'muted' }, 'Ask the visitor questions. Watch how they answer.'), list, log,
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => m.close() }, 'Hang up (Esc)'))), { side: true, title: 'Intercom' });
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => m.close() }, 'Hang up (Esc)'))), { side: true, title: 'Intercom', onClose: () => this.ui.heldCard(null) });
+    // hold the ID card up beside the window for comparison
+    if (run.cardFront) this.ui.heldCard(run.cardFront);
     m.keys = (e) => { if (e.code === 'KeyE' || e.code === 'KeyQ') m.close(); };
   }
 
@@ -658,11 +785,23 @@ export class Game {
 
   async searchItem(itemId) {
     const run = this.run;
+    if (run.searching) return;
     run.searched.add(itemId);
+    const name = run.ch.items.get(itemId).name.toLowerCase();
+    let objs = (run.spec.pockets[itemId] || []).filter((o) => !o.handled);
+    if (this.lv.search < 1) {
+      // by hand: slow, and easy to miss something (at most twice per hidden object)
+      run.searching = true;
+      const bar = el('div', { class: 'search-bar' }, el('div'));
+      const m = this.ui.modal(el('div', {}, el('p', {}, `Searching the ${name}…`), bar), { title: 'Searching', closable: false });
+      for (let k = 1; k <= 20; k++) { await sleep(125); bar.firstChild.style.width = k * 5 + '%'; if (k % 5 === 0) audio.burst({ dur: 0.15, freq: 700 + Math.random() * 400, gain: 0.08 }); }
+      m.close();
+      run.searching = false;
+      objs = objs.filter((o) => { o.misses = o.misses || 0; if (o.misses < 2 && Math.random() < 0.4) { o.misses++; return false; } return true; });
+    }
     this.emit('searched', itemId);
-    const objs = (run.spec.pockets[itemId] || []).filter((o) => !o.handled);
     audio.burst({ dur: 0.4, freq: 900, gain: 0.15 });
-    if (!objs.length) { this.ui.toast(`You search the ${run.ch.items.get(itemId).name.toLowerCase()}: nothing inside.`); return; }
+    if (!objs.length) { this.ui.toast(`You search the ${name}: ${this.lv.search < 1 ? 'you don\'t find anything.' : 'nothing inside.'}`); return; }
     for (const o of objs) {
       await this.objectDecision(o, itemId);
     }
@@ -718,10 +857,103 @@ export class Game {
     if (!left.length) {
       if (run.armsUp) this.lowerArms(run);
       run.ch.animator.setPose('shy');
-      run.ch.animator.mood = 'cold';
-      run.ch.face.setBase({ sad: 0.25 });
-      this.setObjective(`All clothing removed. Finish sorting, then take the <b>hose</b> from the wall reel and wash the visitor thoroughly. ${K('arms')} raise arms, ${K('turn')} turn around.`);
+      // heaters keep a stripped visitor comfortable; an unheated room leaves them shivering
+      if (this.lv.room >= 2) { run.ch.animator.mood = 'calm'; run.ch.face.setBase({ relaxed: 0.15 }); this.favor(run, 3); }
+      else { run.ch.animator.mood = 'cold'; run.ch.face.setBase({ sad: 0.25 }); if (this.lv.room === 0) { run.ch.animator.shiver = 0.6; this.favor(run, -2); } }
+      this.setObjective(`All clothing removed. Finish sorting, then ${this.washHint()} ${K('arms')} raise arms, ${K('turn')} turn around.`);
     }
+  }
+
+  washHint() {
+    return this.lv.wash === 0 ? 'use the <b>bathtub</b>: the visitor lies down and the tub fills, washing them.'
+      : this.lv.wash >= 2 ? 'run the <b>overhead shower</b> (valve on the wall) or take the <b>hose</b> from the reel.'
+        : 'take the <b>hose</b> from the wall reel and wash the visitor thoroughly.';
+  }
+  // all clothing off and sorted, not dressed again: ready to be washed
+  readyToWash(run = this.run) {
+    return run && ['decon', 'inspect'].includes(run.phase) && !run.clothesReturned && !run.washing && this.removableItems().every((o) => run.fate[o.id]);
+  }
+
+  // ---- starting kit: the bathtub (lie down, the tub fills, the dirt soaks away)
+  async runBath() {
+    const run = this.run;
+    if (!this.readyToWash(run)) { this.ui.toast('Remove and sort all clothing first.', 'warn'); audio.error(); return; }
+    const ch = run.ch, W = this.world;
+    run.washing = true; run.phase = 'hose'; run.hosed = true;
+    this.setObjective('The tub is filling. Wait for the bath to finish.');
+    this.react(run.expects ? 'hoseExpect' : 'bathStart', 'relaxed', 0.6);
+    if (run.armsUp) this.lowerArms(run);
+    const tub = { kind: 'cot', aisle: new THREE.Vector3(3.3, 0, 13.35), pos: new THREE.Vector3(3.98, 0.2, 12.4), ry: Math.PI / 2 };
+    ch.turnTarget = null;
+    this.walkers.add(ch);
+    await this.walkPath(ch, [new THREE.Vector3(1.6, 0, 13.6), tub.aisle], WALK * 0.8);
+    await this.moveIntoBed(ch, tub, true);
+    ch.face.eyesClosed = 0.6;
+    W.tubWater.visible = true;
+    audio.loop('bath', true, { freq: 500, q: 0.4, gain: 0.05, bus: 'water' });
+    const T = 18;
+    for (let t = 0; t <= T; t += 0.1) {
+      if (this.run !== run) break;
+      const lvl = 0.08 + (t / T) * 0.27;
+      W.tubWater.position.y = lvl; ch.setBathLevel(lvl);
+      ch.setHairWet(Math.min(0.9, Math.max(ch.hairWet, (t / T) * 1.2 - 0.3)));
+      await sleep(100);
+    }
+    audio.loop('bath', false);
+    this.finishWash(run);
+    await sleep(800);
+    ch.face.eyesClosed = 0;
+    W.tubWater.visible = false; ch.setBathLevel(-100);
+    await this.moveIntoBed(ch, tub, false);
+    ch.animator.setPose('shy');
+    await this.walkPath(ch, [new THREE.Vector3(1.6, 0, 13.6), new THREE.Vector3(0, 0, 15)], WALK * 0.8);
+    this.walkers.delete(ch);
+    ch.turnTarget = Math.PI;
+    run.proxies?.bakeAsync();
+    run.washing = false;
+  }
+  // ---- top upgrade: the overhead shower soaks the visitor head to toe in ten seconds
+  async runShower() {
+    const run = this.run;
+    if (!this.readyToWash(run)) { this.ui.toast('Remove and sort all clothing first (and have the visitor on the drain).', 'warn'); audio.error(); return; }
+    const ch = run.ch, W = this.world;
+    run.washing = true; run.phase = 'hose'; run.hosed = true;
+    this.setObjective('Showering…');
+    this.react(run.expects ? 'hoseExpect' : 'showerStart', run.expects ? 'relaxed' : 'surprised', 0.8);
+    audio.loop('shower', true, { freq: 1100, q: 0.3, gain: 0.06, bus: 'water' });
+    W.setShowerRain(true);
+    const top = ch.root.position.y + ch.heightM + 0.15, bottom = ch.root.position.y - 0.05;
+    for (let t = 0; t <= 10; t += 0.05) {
+      if (this.run !== run) break;
+      const y = top + (bottom - top) * (t / 10);
+      ch.setWashLine(y);
+      if (y < ch.root.position.y + ch.heightM * 0.85) ch.setHairWet(Math.min(1, ch.hairWet + 0.02));
+      this.world.puddle.material.opacity = Math.min(0.7, t * 0.07);
+      await sleep(50);
+    }
+    W.setShowerRain(false);
+    audio.loop('shower', false);
+    this.finishWash(run);
+    ch.setWashLine(100);
+    run.washing = false;
+  }
+  // after the bath / shower: everything rinsed off, soaked, ready for inspection
+  finishWash(run) {
+    const ch = run.ch;
+    for (const S of [ch.surfBody, ch.surfFace]) { const d = S?.layers.fx?.data; if (!d) continue; for (let k = 0; k < d.length; k += 4) { d[k] = d[k + 1] = d[k + 2] = 0; } S.layers.fx.dirty = true; S.flush(); }
+    ch.setWetAll(0.95); ch.setHairWet(1);
+    run.hoseTime = 20;
+    ch.animator.mood = 'wet';
+    run.phase = 'inspect';
+    this.setObjective('Inspect the visitor\'s body closely (eyes, skin, marks). Then <b>return their clothes</b> at the washer and make a decision at the <b>disposition terminal</b>.');
+    this.emit('hoseReturned');
+  }
+  toggleUvRoom() {
+    const on = !this.world.uvMode;
+    this.world.setDeconLighting(on);
+    GLOBAL_UNIFORMS.hvUvFlood.value = on ? 1 : 0;
+    audio.click();
+    this.ui.toast(on ? 'UV lighting on: anything that fluoresces is glowing.' : 'Room lights back on.');
   }
 
   // How the visitor reacts depends on what came off (and on who they are).
@@ -797,6 +1029,7 @@ export class Game {
 
   toggleHose() {
     const run = this.run;
+    if (this.lv.wash < 1) return;
     if (this.player.hasHose) {
       this.player.hasHose = false;
       this.player.setTool('hand');
@@ -929,7 +1162,7 @@ export class Game {
       el('p', { class: 'muted' }, 'Choose where this visitor goes. Infected or irradiated visitors must be cured before anything else. False identities must be questioned. Only those found dangerous are sent away.'),
       el('div', { class: 'col' },
         el('button', { class: 'good', onclick: () => choose('admit') }, 'Admit into the Haven'),
-        el('button', { onclick: () => choose('tank'), disabled: !tankFree }, 'Send to the cure tanks (Medical Lab)' + (tankFree ? '' : ' — all tanks occupied')),
+        el('button', { onclick: () => choose('tank'), disabled: !tankFree }, 'Send for treatment (Medical Ward)' + (tankFree ? '' : ' — every bed is occupied')),
         el('button', { onclick: () => choose('interro') }, 'Hold for interrogation'),
         el('button', { class: 'danger', onclick: () => choose('deny') }, 'Deny entry — send back to the wasteland'),
         el('button', { onclick: () => m.close() }, 'Cancel')));
@@ -988,11 +1221,12 @@ export class Game {
       const patient = { spec: run.spec, ch: null, level: run.spec.cureDays ? 100 : 0, daysIn: 0, checkedToday: true, idStamp: run.idStamp, run, arriving: true };
       this.tanks[i] = patient;
       this.finishRun(run, 'tank', true);
-      this.ui.toast(`${this.speakerName(ch)} is heading to Tank ${i + 1}. Check the tank console in the Medical Lab every day.`, 'warn', 6);
+      const bed = this.world.beds[i];
+      this.ui.toast(`${this.speakerName(ch)} is heading to ${this.bedName(i)} in the Medical Ward. Treat them there every day.`, 'warn', 6);
       run.phase = 'toTank';
-      await this.walkPath(ch, [...PATHS.deconToLab, ...tankApproach(i)], WALK);
+      await this.walkPath(ch, [...PATHS.deconToLab, bed.aisle], WALK);
       this.walkers.add(ch);
-      await this.moveSmooth(ch, TANK_POS[i].clone().add(new THREE.Vector3(0, 0.45, 0)), -Math.PI / 2, 1.6);
+      await this.moveIntoBed(ch, bed, true);
       this.walkers.delete(ch);
       patient.ch = ch; patient.arriving = false;
       this.placeInTank(patient, i);
@@ -1247,8 +1481,9 @@ export class Game {
 
   // ---------------------------------------------------------------- tanks
   openTank(i) {
-    const t = this.tanks[i];
-    if (!t) { this.ui.modal(el('p', {}, `Tank ${i + 1} is empty.`), { title: `Tank ${i + 1}` }); return; }
+    const t = this.tanks[i], bed = this.world.beds[i];
+    const nm = this.bedName(i);
+    if (!t) { this.ui.modal(el('p', {}, `${nm} is empty.`), { title: nm }); return; }
     const s = t.spec;
     const infected = ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'fixedPupils'].some((p) => s.problems.includes(p));
     const rad = s.problems.includes('radiation');
@@ -1256,19 +1491,21 @@ export class Game {
     const radLevel = rad ? t.level : 0;
     const bar = (v, color) => el('div', { style: { height: '14px', background: '#222', borderRadius: '3px', overflow: 'hidden', margin: '4px 0 10px' } }, el('div', { style: { width: v + '%', height: '100%', background: color } }));
     const status = el('p');
-    const update = () => { status.innerHTML = t.checkedToday ? '<span class="ok">Cure cycle administered today.</span>' : '<span class="warn">Cure cycle NOT yet administered today.</span>'; };
+    const cot = bed?.kind === 'cot';
+    const update = () => { status.innerHTML = t.checkedToday ? `<span class="ok">${cot ? 'Cure serum' : 'Cure cycle'} administered today.</span>` : `<span class="warn">${cot ? 'Cure serum' : 'Cure cycle'} NOT yet administered today.</span>`; };
     update();
     const content = el('div', {},
-      el('p', {}, el('b', {}, `${s.card.first} ${s.card.last}`), el('span', { class: 'muted' }, ` · ${t.daysIn} day(s) in tank · ID stamp: ${t.idStamp}`)),
+      el('p', {}, el('b', {}, `${s.card.first} ${s.card.last}`), el('span', { class: 'muted' }, ` · ${t.daysIn} day(s) in treatment · ID stamp: ${t.idStamp}`)),
       el('div', {}, 'Pathogen load: ', el('b', {}, `${Math.round(pathogen)}%`)), bar(pathogen, '#8fd14f'),
       el('div', {}, 'Radiation contamination: ', el('b', {}, `${Math.round(radLevel)}%`)), bar(radLevel, '#ffb347'),
       status,
+      el('p', { class: 'muted' }, cot ? 'Cots are slow: a full cure takes several days.' : this.lv.cure >= 11 ? 'Accelerated tank: full-speed treatment.' : 'Cure tank: faster than a cot.'),
       el('div', { class: 'row' },
-        el('button', { class: 'primary', disabled: t.checkedToday, onclick: (e) => { t.checkedToday = true; audio.bubble(); audio.good(); update(); e.target.disabled = true; this.emit('tankChecked', i); this.autosave(); } }, 'Check vitals & administer cure cycle'),
+        el('button', { class: 'primary', disabled: t.checkedToday, onclick: (e) => { t.checkedToday = true; audio.bubble(); audio.good(); update(); e.target.disabled = true; this.emit('tankChecked', i); this.autosave(); } }, cot ? 'Check vitals & inject cure serum' : 'Check vitals & administer cure cycle'),
         el('button', { onclick: () => { m.close(); this.releasePatient(i); } }, 'Release patient'),
         el('button', { onclick: () => m.close() }, 'Close')),
-      el('p', { class: 'muted' }, 'Patients must be checked every day. Release them only when both readings are at 0%.'));
-    const m = this.ui.modal(content, { title: `Tank ${i + 1} — Patient Monitor` });
+      el('p', { class: 'muted' }, 'Patients must be treated every day. Release them only when both readings are at 0%.'));
+    const m = this.ui.modal(content, { title: `${nm} — Patient Monitor` });
     this.emit('tankOpened', i);
   }
 
@@ -1289,9 +1526,10 @@ export class Game {
       this.tanks[i] = null;
       this.run = run;
       this.updateHUD();
+      const bed = this.world.beds[i];
       ch.setFloating(false); ch.face.eyesClosed = 0; ch.face.setBase({ relaxed: 0.3 });
       // a finished cure leaves no trace of the illness; the tank also scrubs the skin clean
-      if (!early) await cureCharacter(ch, t.spec);
+      if (!early) { await cureCharacter(ch, t.spec); ch.setRadiation(false); }
       else { for (const S of [ch.surfBody, ch.surfFace]) { const d = S?.layers.fx?.data; if (d) { for (let k = 0; k < d.length; k += 4) { d[k] = d[k + 1] = d[k + 2] = 0; } S.layers.fx.dirty = true; S.flush(); } } }
       ch.setLayers({ fx: 1 });
       // their washed clothes wait in the decontamination room
@@ -1301,9 +1539,10 @@ export class Game {
       ch.animator.lookTarget = this.engine.camera; ch.lookAt(this.engine.camera);
       audio.bubble();
       this.walkers.add(ch);
-      await this.moveSmooth(ch, tankApproach(i)[1], Math.PI / 2, 1.6);
+      await this.moveIntoBed(ch, bed, false);
+      ch.animator.setPose('idle');
       this.react('release', 'relaxed', 0.6, run);
-      await this.walkPath(ch, [tankApproach(i)[0], ...PATHS.labToDecon], WALK);
+      await this.walkPath(ch, PATHS.labToDecon, WALK);
       ch.turnTarget = Math.PI;
       // get dressed now that they are back in the washroom
       await washing;
@@ -1368,7 +1607,7 @@ export class Game {
     const neglect = [];
     this.tanks.forEach((t, i) => {
       if (!t) return;
-      if (!t.checkedToday && t.level > 0) neglect.push({ spec: t.spec, results: [{ sev: 'minor', text: `Tank ${i + 1} patient was not checked today — no cure progress.` }] });
+      if (!t.checkedToday && t.level > 0) neglect.push({ spec: t.spec, results: [{ sev: 'minor', text: `${this.bedName(i)} patient was not treated today — no cure progress.` }] });
     });
     for (const n of neglect) this.recordResults(n.spec, n.results);
     // report
@@ -1384,9 +1623,10 @@ export class Game {
       el('p', {}, `Shift complete. Net credits today: `, el('b', { class: dayDelta >= 0 ? 'ok' : 'bad' }, String(dayDelta)), ` · Total: ${this.credits}`),
       majors ? el('p', { class: 'bad' }, `${majors} serious violation(s) recorded by Haven Security.`) : el('p', { class: 'ok' }, 'No serious violations. Good work, officer.'),
       el('table', {}, el('tr', {}, el('th', {}, 'Visitor / attitude'), el('th', {}, 'Findings'), el('th', {}, 'Credits')), rows),
-      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => { m.close(); this.nextDay(); } }, 'Begin next day'), el('button', { onclick: () => { m.close(); this.app.toMenu(); } }, 'Save & quit to menu')));
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => { m.close(); this.nextDay(); } }, 'Begin next day'), el('button', { onclick: () => this.openShop() }, 'Buy upgrades…'), el('button', { onclick: () => { m.close(); this.app.toMenu(); } }, 'Save & quit to menu')));
     const m = this.ui.modal(content, { title: `End of Day ${this.day}`, closable: false });
     this.advanceTanks();
+    this.dayOver = true;
     await this.save(this.day + 1);
     this.emit('dayEnded');
   }
@@ -1418,11 +1658,14 @@ export class Game {
   }
 
   advanceTanks() {
-    this.tanks.forEach((t) => {
+    this.tanks.forEach((t, i) => {
       if (!t) return;
       t.daysIn++;
       if (t.checkedToday && t.level > 0) {
-        const per = 100 / Math.max(1, t.spec.cureDays);
+        // cots are slow, basic tanks faster, accelerated tanks full speed
+        const kind = this.world.beds[i]?.kind || 'cot';
+        const speed = kind === 'cot' ? 0.45 : this.lv.cure >= 11 ? 1 : 0.7;
+        const per = (100 / Math.max(1, t.spec.cureDays)) * speed;
         t.level = Math.max(0, t.level - per * (0.9 + Math.random() * 0.25));
         if (t.level < 6) t.level = 0;
       }
@@ -1435,7 +1678,7 @@ export class Game {
   async save(day = this.day, { midDay = false } = {}) {
     if (this.app.tutorial || this.noSave) return;
     const tank = (t) => (t ? { spec: t.spec, level: t.level, daysIn: t.daysIn, idStamp: t.idStamp, washer: t.run?.washer || [], favor: t.run?.favor ?? 0, checkedToday: midDay ? !!t.checkedToday : false } : null);
-    const data = { version: 2, day, credits: this.credits, tanks: this.tanks.map(tank), premadeSeen: [...this.premadeSeen] };
+    const data = { version: 3, day, credits: this.credits, tanks: this.tanks.map(tank), premadeSeen: [...this.premadeSeen], upgrades: { ...this.owned } };
     if (midDay) {
       const ir = this.interro?.run;
       // a visitor still being processed is put back at the front of the line;
@@ -1458,13 +1701,14 @@ export class Game {
   autosave() {
     if (this.app.tutorial) return;
     clearTimeout(this._saveT);
-    this._saveT = setTimeout(() => this.save(this.day, { midDay: true }), 400);
+    // after the shift report, saves belong to the next day
+    this._saveT = setTimeout(() => (this.dayOver ? this.save(this.day + 1) : this.save(this.day, { midDay: true })), 400);
   }
   async load(data) {
     this.credits = data.credits || 0;
     this.premadeSeen = new Set(data.premadeSeen || []);
-    this.tanks = (data.tanks || [null, null, null, null]).map((t) => (t ? { spec: t.spec, level: t.level, daysIn: t.daysIn, idStamp: t.idStamp, checkedToday: !!t.checkedToday, run: { spec: t.spec, washer: t.washer, found: [], fate: {}, idStamp: t.idStamp, favor: t.favor ?? 0 } } : null));
-    while (this.tanks.length < 4) this.tanks.push(null);
+    this.owned = { ...START_LEVELS, ...(data.upgrades || LEGACY_LEVELS) };
+    this.tanks = (data.tanks || []).map((t) => (t ? { spec: t.spec, level: t.level, daysIn: t.daysIn, idStamp: t.idStamp, checkedToday: !!t.checkedToday, run: { spec: t.spec, washer: t.washer, found: [], fate: {}, idStamp: t.idStamp, favor: t.favor ?? 0 } } : null));
     const md = data.midDay;
     if (md && (md.queue.length || md.interro)) await this.startDay(data.day || 1, { preset: md.queue, resume: md });
     else if (md) { this.dayLog = md.dayLog || []; this.day = data.day || 1; await this.startDay(this.day, { preset: [], resume: md }); }
@@ -1490,9 +1734,55 @@ export class Game {
   }
 
   // -------------------------------------------------------------- radiation
-  radiationAt(p) {
+  // metal still on the visitor (in pockets of garments they wear): 0..1 by distance to the wand
+  metalNear(p) {
+    const run = this.run;
+    if (!run?.ch || !['decon', 'hose', 'inspect', 'released'].includes(run.phase)) return 0;
+    let best = 0;
+    for (const [itemId, objs] of Object.entries(run.spec.pockets)) {
+      const it = run.ch.items.get(itemId);
+      if (!it || it.removed) continue;
+      if (!objs.some((o) => !o.handled && METAL.has(o.type))) continue;
+      const d = p.distanceTo(run.ch.boneWorld(it.anchor || 'chest'));
+      best = Math.max(best, THREE.MathUtils.clamp(1 - (d - 0.08) / 0.45, 0, 1));
+    }
+    return best;
+  }
+  // X-ray gun: concealed objects show up as glowing shapes where the beam hits
+  updateXray() {
+    const run = this.run;
+    if (this._xrayRun && this._xrayRun !== run) { for (const x of this._xrayRun.xray || []) this.scene.remove(x.mesh); this._xrayRun.xray = null; }
+    this._xrayRun = run;
+    const on = this.player.tool === 'detector' && this.lv.search >= 3 && run?.ch && ['decon', 'hose', 'inspect', 'released'].includes(run.phase);
+    if (!on) { if (run?.xray) for (const o of run.xray) o.mesh.visible = false; return; }
+    if (!run.xray) {
+      run.xray = [];
+      const mat = new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.85, depthTest: false });
+      for (const [itemId, objs] of Object.entries(run.spec.pockets)) for (const o of objs) {
+        const mesh = buildObject(o.type);
+        mesh.traverse((m) => { if (m.isMesh) { m.material = mat; m.renderOrder = 20; } });
+        mesh.scale.multiplyScalar(0.8);
+        this.scene.add(mesh);
+        run.xray.push({ mesh, itemId, o, off: new THREE.Vector3((Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.1, 0.06) });
+      }
+    }
+    const cam = this.engine.camera.getWorldPosition(new THREE.Vector3()), fwd = this.player.forward();
+    for (const x of run.xray) {
+      const it = run.ch.items.get(x.itemId);
+      if (!it || it.removed || x.o.handled) { x.mesh.visible = false; continue; }
+      const p = run.ch.boneWorld(it.anchor || 'chest').add(x.off.clone().applyQuaternion(run.ch.root.quaternion));
+      x.mesh.position.copy(p);
+      x.mesh.rotation.y += 0.01;
+      const to = p.clone().sub(cam);
+      x.mesh.visible = to.length() < 3.5 && to.normalize().angleTo(fwd) < 0.11;
+    }
+  }
+
+  // level 1 (basic counter) only reads right against a source; better counters read from a distance
+  radiationAt(p, level = 2) {
     let r = 0;
-    const add = (pos, strength) => { const d2 = p.distanceToSquared(pos); r += strength / (d2 * 6 + 0.15); };
+    const k = level <= 1 ? 90 : 6;
+    const add = (pos, strength) => { const d2 = p.distanceToSquared(pos); r += strength / (d2 * k + 0.15); };
     const run = this.run;
     const v = new THREE.Vector3();
     if (run?.ch) {
@@ -1504,7 +1794,7 @@ export class Game {
       }
       if (run.spec.body.rad > 0 && !run.spec.cured) for (const b of ['chest', 'hips', 'head', 'leftLowerLeg', 'rightLowerArm']) add(run.ch.boneWorld(b, v), 0.07 * run.spec.body.rad);
     }
-    this.tanks.forEach((t, i) => { if (t && t.spec.body.rad > 0 && t.level > 0) add(TANK_POS[i].clone().setY(1.2), 0.05 * t.spec.body.rad * t.level / 100); });
+    this.tanks.forEach((t, i) => { const b = this.world.beds[i]; if (t && b && t.spec.body.rad > 0 && t.level > 0) add(b.pos.clone().setY(b.kind === 'tank' ? 1.2 : 0.8), 0.05 * t.spec.body.rad * t.level / 100); });
     return r;
   }
 
@@ -1519,16 +1809,26 @@ export class Game {
     reg('stampFlag', () => (this.run?.phase === 'booth' && !this.run.idStamp ? 'Stamp ID: FLAG for questioning' : null), () => this.stamp('FLAGGED'));
     reg('intercom', () => (this.run?.phase === 'booth' ? 'Use intercom (question visitor)' : null), () => this.openIntercom());
     reg('rulebook', () => 'Read procedures', () => this.openRulebook());
+    reg('shop', () => 'Supply terminal (buy equipment upgrades)', () => this.openShop());
     reg('washer', () => {
       if (this.player.carrying) return `Load ${this.player.carrying.name} into the washer`;
       if (this.run?.phase === 'inspect' && !this.run.clothesReturned) return 'Unload washer and return clothes';
       return null;
     }, () => (this.player.carrying ? this.depositCarried('wash') : this.returnClothes()));
     reg('incinerator', () => (this.player.carrying ? `Burn ${this.player.carrying.name}` : null), () => this.depositCarried('burn'));
-    reg('hose', () => (this.player.hasHose ? 'Put the hose back' : 'Take the hose'), () => this.toggleHose(), 2.4);
+    reg('hose', () => (this.lv.wash < 1 ? null : this.player.hasHose ? 'Put the hose back' : 'Take the hose'), () => this.toggleHose(), 2.4);
+    reg('tub', () => (this.lv.wash !== 0 ? null : this.readyToWash() ? 'Run the bath (the visitor lies in the tub)' : 'Bathtub — strip and sort everything first'), () => this.runBath(), 2.6);
+    reg('shower', () => (this.lv.wash < 2 ? null : this.readyToWash() ? 'Run the overhead shower (10 seconds)' : 'Shower valve — strip and sort everything first'), () => this.runShower(), 2.4);
+    reg('uvSwitch', () => (this.lv.light < 4 ? null : this.world.uvMode ? 'Turn the room lights back on' : 'Switch the room to UV light'), () => this.toggleUvRoom(), 2.2);
     reg('terminal', () => (this.run && ['decon', 'hose', 'inspect', 'released'].includes(this.run.phase) ? 'Disposition terminal' : null), () => this.openTerminal());
     reg('interroConsole', () => (this.interro ? 'Review interrogation' : null), () => this.openInterrogation());
-    for (let i = 0; i < 4; i++) reg('tank' + i, () => (this.tanks[i] ? `Tank ${i + 1} monitor` : `Tank ${i + 1} (empty)`), () => this.openTank(i));
+    this.reg = reg;
+    this.registerBeds();
+  }
+  registerBeds() {
+    if (!this.handlers) return;
+    for (const k of Object.keys(this.handlers)) if (k.startsWith('bed')) delete this.handlers[k];
+    this.world.beds.forEach((b, i) => this.reg('bed' + i, () => (this.tanks[i] ? `${this.bedName(i)} — ${this.tanks[i].spec.card.first} ${this.tanks[i].spec.card.last}` : `${this.bedName(i)} (empty)`), () => this.openTank(i), 2.6));
   }
 
   findHover() {
@@ -1597,8 +1897,11 @@ export class Game {
     else if (c === KB.turn) this.visitorCommand('turn');
     else if (c === KB.arms) this.visitorCommand('arms');
     else if ([KB.tool1, KB.tool2, KB.tool3, KB.tool4, KB.tool5].includes(c)) {
-      const id = ['hand', 'flashlight', 'uv', 'geiger', 'hose'][[KB.tool1, KB.tool2, KB.tool3, KB.tool4, KB.tool5].indexOf(c)];
-      if (!this.player.setTool(id)) { if (id === 'hose') this.ui.toast('Take the hose from the reel in the washroom.'); }
+      const id = ['hand', 'flashlight', 'uv', 'geiger', 'hose', 'detector'][[KB.tool1, KB.tool2, KB.tool3, KB.tool4, KB.tool5, KB.tool6].indexOf(c)];
+      if (!this.player.setTool(id)) {
+        if (!this.player.owns(id)) this.ui.toast({ uv: 'You have no UV light yet — buy one at the supply terminal.', geiger: 'You have no radiation detector yet — buy one at the supply terminal.', hose: this.lv.wash < 1 ? 'There is no hose yet — visitors wash in the bathtub.' : '', detector: 'You have no metal detector yet — buy one at the supply terminal.' }[id] || 'Not available.', 'warn');
+        else if (id === 'hose') this.ui.toast('Take the hose from the reel in the washroom.');
+      }
       else this.emit('tool', id);
     }
   }
@@ -1662,7 +1965,9 @@ export class Game {
         // the light only reaches the eyes if it comes from in front of the face
         const faceDir = new THREE.Vector3(0, 0, 1).applyQuaternion(ch.bone('head').getWorldQuaternion(new THREE.Quaternion()));
         const frontal = THREE.MathUtils.clamp((faceDir.dot(to.clone().negate()) - 0.25) / 0.4, 0, 1);
-        if (dist < 4.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.06) / 0.22, 0, 1) * THREE.MathUtils.clamp(1.6 - dist / 3, 0.3, 1) * frontal;
+        // a pen light only reaches the pupils from very close; a flashlight works across the room
+        if (this.lv.light < 1) { if (dist < 0.75) lit = THREE.MathUtils.clamp(1 - (ang - 0.02) / 0.07, 0, 1) * frontal; }
+        else if (dist < 4.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.06) / 0.22, 0, 1) * THREE.MathUtils.clamp(1.6 - dist / 3, 0.3, 1) * frontal;
       }
       // early infection: the pupils stay wide open no matter how bright the light
       const fixedPupils = run.spec.problems.includes('fixedPupils') && !run.spec.cured;
@@ -1671,6 +1976,7 @@ export class Game {
       if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); ch.animator.play(Math.random() < 0.3 ? 'flinch' : 'flinchHead'); this.favor(run, -3); if (Math.random() < 0.4) this.react('flashlight', null, 0, run); } }
       else if (lit === 0) run._flinched = false;
     }
+    this.updateXray();
     // hover + prompt
     this._hoverAcc = (this._hoverAcc || 0) + dt;
     if (this._hoverAcc > 0.08) {
@@ -1687,7 +1993,7 @@ export class Game {
     if (this.world.raining || this._rainOn) { this._rainOn = this.world.raining; audio.loop('rain', this.world.raining, { freq: 1600, q: 0.3, gain: 0.015 + this.world.doors.outer.open * 0.05, bus: 'ambience', type: 'lowpass' }); }
     this.ui.reticle(this.player.tool === 'hose' && !this.player.carrying ? 'hose' : null);
     // tank screens pulse
-    this.world.tanks.forEach((tk, i) => { tk.screen.material.emissiveIntensity = this.tanks[i] ? (this.tanks[i].checkedToday ? 0.6 : 0.3 + 0.3 * Math.sin(performance.now() * 0.006)) : 0.05; tk.light.intensity = this.tanks[i] ? 2.2 : 0.6; });
+    this.world.beds.forEach((b, i) => { b.screen.material.emissiveIntensity = this.tanks[i] ? (this.tanks[i].checkedToday ? 0.6 : 0.3 + 0.3 * Math.sin(performance.now() * 0.006)) : 0.05; });
     // tutorial movement event
     if (!this._lastPos) this._lastPos = this.player.pos.clone();
     this._moved = (this._moved || 0) + this.player.pos.distanceTo(this._lastPos);
