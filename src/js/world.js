@@ -538,8 +538,9 @@ export class World {
     this.interact.interroConsole = this.box(0.6, 0.8, 0.6, new THREE.MeshBasicMaterial({ visible: false }), -8.6, 1.0, 16.6, { cast: false });
 
     // global ambient
-    const hemi = new THREE.HemisphereLight(0xb8c4d0, 0x2a2420, 0.35);
+    const hemi = this.hemi = new THREE.HemisphereLight(0xb8c4d0, 0x2a2420, 0.35);
     this.group.add(hemi);
+    this.ambientK = 1;
   }
 
   // Show / hide upgrade equipment and set the decontamination room's lighting.
@@ -642,6 +643,16 @@ export class World {
 
   update(dt, playerPos, extra) {
     this.updateDoors(dt, playerPos, extra);
+    // ambient/environment light follows the room the player is in: decon is dim without the
+    // lighting upgrade, and almost dark in UV mode
+    if (playerPos && this.scene) {
+      const inDecon = playerPos.x > -6 && playerPos.x < 6 && playerPos.z > 9.3 && playerPos.z < 21;
+      const want = !inDecon ? 1 : this.uvMode ? 0.06 : (this.lv?.room ?? 1) >= 1 ? 1 : 0.5;
+      this.ambientK += (want - this.ambientK) * Math.min(1, dt * 4);
+      if (this.baseEnv == null) this.baseEnv = this.scene.environmentIntensity ?? 0.35;
+      this.scene.environmentIntensity = this.baseEnv * this.ambientK;
+      this.hemi.intensity = 0.35 * this.ambientK;
+    }
     for (const u of this.updaters) u(dt);
   }
 
