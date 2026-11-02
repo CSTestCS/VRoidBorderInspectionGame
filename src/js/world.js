@@ -435,14 +435,18 @@ export class World {
     // bathtub (starting wash equipment)
     const tub = this.tub = new THREE.Group(); tub.position.set(3.3, 0, 12.4); this.group.add(tub);
     const enamel = new THREE.MeshPhysicalMaterial({ color: 0xe9ecea, roughness: 0.25, clearcoat: 0.6 });
-    this.box(1.8, 0.08, 0.86, enamel, 0, 0.04, 0, { parent: tub });
-    this.box(1.8, 0.56, 0.07, enamel, 0, 0.3, 0.4, { parent: tub }); this.box(1.8, 0.56, 0.07, enamel, 0, 0.3, -0.4, { parent: tub });
-    this.box(0.07, 0.56, 0.86, enamel, 0.9, 0.3, 0, { parent: tub }); this.box(0.07, 0.56, 0.86, enamel, -0.9, 0.3, 0, { parent: tub });
-    const tap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 10), M.metal); tap.position.set(0.86, 0.66, 0); tap.rotation.z = Math.PI / 2.6; tub.add(tap);
-    this.tubWater = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.76), new THREE.MeshPhysicalMaterial({ color: 0x9fc9d8, roughness: 0.04, transmission: 0.5, transparent: true, opacity: 0.55, depthWrite: false }));
-    this.tubWater.rotation.x = -Math.PI / 2; this.tubWater.position.y = 0.09; this.tubWater.visible = false; tub.add(this.tubWater);
-    this.tubCollider = [2.35, 4.25, 11.92, 12.88];
-    this.interact.tub = this.box(1.8, 0.7, 0.9, new THREE.MeshBasicMaterial({ visible: false }), 3.3, 0.35, 12.4, { cast: false });
+    const L = 2.3, Wd = 1.06, H = 0.7;
+    this.box(L, 0.1, Wd, enamel, 0, 0.05, 0, { parent: tub });
+    this.box(L, H, 0.08, enamel, 0, H / 2, Wd / 2 - 0.04, { parent: tub }); this.box(L, H, 0.08, enamel, 0, H / 2, -Wd / 2 + 0.04, { parent: tub });
+    this.box(0.08, H, Wd, enamel, L / 2 - 0.04, H / 2, 0, { parent: tub }); this.box(0.08, H, Wd, enamel, -L / 2 + 0.04, H / 2, 0, { parent: tub });
+    // rolled rim
+    for (const z of [Wd / 2 - 0.04, -Wd / 2 + 0.04]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, L, 12), enamel); r.rotation.z = Math.PI / 2; r.position.set(0, H, z); tub.add(r); }
+    for (const x of [L / 2 - 0.04, -L / 2 + 0.04]) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, Wd, 12), enamel); r.rotation.x = Math.PI / 2; r.position.set(x, H, 0); tub.add(r); }
+    const tap = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.26, 10), M.metal); tap.position.set(L / 2 - 0.06, H + 0.12, 0); tap.rotation.z = Math.PI / 2.6; tub.add(tap);
+    this.tubWater = new THREE.Mesh(new THREE.PlaneGeometry(L - 0.16, Wd - 0.16), new THREE.MeshPhysicalMaterial({ color: 0x9fc9d8, roughness: 0.04, transmission: 0.5, transparent: true, opacity: 0.6, depthWrite: false }));
+    this.tubWater.rotation.x = -Math.PI / 2; this.tubWater.position.y = 0.1; this.tubWater.visible = false; tub.add(this.tubWater);
+    this.tubCollider = [3.3 - L / 2 - 0.05, 3.3 + L / 2 + 0.05, 12.4 - Wd / 2 - 0.05, 12.4 + Wd / 2 + 0.05];
+    this.interact.tub = this.box(2.3, 0.8, 1.1, new THREE.MeshBasicMaterial({ visible: false }), 3.3, 0.4, 12.4, { cast: false });
     // overhead shower (upgrade) above the drain
     const sh = this.shower = new THREE.Group(); this.group.add(sh);
     const shPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.75), M.metal); shPipe.position.set(0, 3.02, 15); sh.add(shPipe);

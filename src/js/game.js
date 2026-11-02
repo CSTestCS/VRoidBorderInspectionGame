@@ -546,7 +546,7 @@ export class Game {
     ch.root.rotation.order = 'YXZ';
     const from = entering ? bed.aisle.clone() : bed.pos.clone(), to = entering ? bed.pos.clone() : bed.aisle.clone();
     const ry0 = entering ? ch.root.rotation.y : bed.ry, ry1 = entering ? bed.ry : bed.ry + Math.PI;
-    const tilt = bed.kind === 'cot' ? -Math.PI / 2 : 0;
+    const tilt = bed.tilt ?? (bed.kind === 'cot' ? -Math.PI / 2 : 0);
     const x0 = entering ? 0 : tilt, x1 = entering ? tilt : 0;
     if (bed.kind === 'cot') ch.animator.setPose(entering ? 'lie' : 'idle');
     let t = 0;
@@ -883,30 +883,42 @@ export class Game {
     this.setObjective('The tub is filling. Wait for the bath to finish.');
     this.react(run.expects ? 'hoseExpect' : 'bathStart', 'relaxed', 0.6);
     if (run.armsUp) this.lowerArms(run);
-    const tub = { kind: 'cot', aisle: new THREE.Vector3(3.3, 0, 13.35), pos: new THREE.Vector3(3.98, 0.2, 12.4), ry: Math.PI / 2 };
+    // lie back with the head propped on the rim, feet toward the tap
+    const tub = { kind: 'cot', aisle: new THREE.Vector3(3.3, 0, 13.5), pos: new THREE.Vector3(4.25, 0.16, 12.4), ry: Math.PI / 2, tilt: -Math.PI / 2 + 0.3 };
     ch.turnTarget = null;
     this.walkers.add(ch);
-    await this.walkPath(ch, [new THREE.Vector3(1.6, 0, 13.6), tub.aisle], WALK * 0.8);
+    await this.walkPath(ch, [new THREE.Vector3(1.6, 0, 13.7), tub.aisle], WALK * 0.8);
     await this.moveIntoBed(ch, tub, true);
     ch.face.eyesClosed = 0.6;
     W.tubWater.visible = true;
     audio.loop('bath', true, { freq: 500, q: 0.4, gain: 0.05, bus: 'water' });
-    const T = 18;
-    for (let t = 0; t <= T; t += 0.1) {
+    // fill almost to the brim
+    const floor = 0.1, full = 0.62, FILL = 18, DRAIN = 8;
+    for (let t = 0; t <= FILL; t += 0.1) {
       if (this.run !== run) break;
-      const lvl = 0.08 + (t / T) * 0.27;
+      const lvl = floor + (t / FILL) * (full - floor);
       W.tubWater.position.y = lvl; ch.setBathLevel(lvl);
-      ch.setHairWet(Math.min(0.9, Math.max(ch.hairWet, (t / T) * 1.2 - 0.3)));
+      ch.setHairWet(Math.min(0.9, Math.max(ch.hairWet, (t / FILL) * 1.3 - 0.4)));
       await sleep(100);
     }
     audio.loop('bath', false);
     this.finishWash(run);
-    await sleep(800);
+    // soak a moment, then pull the plug and wait for it to drain
+    await sleep(1500);
+    audio.loop('drain', true, { freq: 320, q: 0.6, gain: 0.05, bus: 'water' });
+    for (let t = 0; t <= DRAIN; t += 0.1) {
+      if (this.run !== run) break;
+      const lvl = full - (t / DRAIN) * (full - floor + 0.02);
+      W.tubWater.position.y = lvl; ch.setBathLevel(Math.max(lvl, floor));
+      await sleep(100);
+    }
+    audio.loop('drain', false);
     ch.face.eyesClosed = 0;
     W.tubWater.visible = false; ch.setBathLevel(-100);
+    await sleep(400);
     await this.moveIntoBed(ch, tub, false);
     ch.animator.setPose('shy');
-    await this.walkPath(ch, [new THREE.Vector3(1.6, 0, 13.6), new THREE.Vector3(0, 0, 15)], WALK * 0.8);
+    await this.walkPath(ch, [new THREE.Vector3(1.6, 0, 13.7), new THREE.Vector3(0, 0, 15)], WALK * 0.8);
     this.walkers.delete(ch);
     ch.turnTarget = Math.PI;
     run.proxies?.bakeAsync();
@@ -1966,7 +1978,7 @@ export class Game {
         const faceDir = new THREE.Vector3(0, 0, 1).applyQuaternion(ch.bone('head').getWorldQuaternion(new THREE.Quaternion()));
         const frontal = THREE.MathUtils.clamp((faceDir.dot(to.clone().negate()) - 0.25) / 0.4, 0, 1);
         // a pen light only reaches the pupils from very close; a flashlight works across the room
-        if (this.lv.light < 1) { if (dist < 0.75) lit = THREE.MathUtils.clamp(1 - (ang - 0.02) / 0.07, 0, 1) * frontal; }
+        if (this.lv.light < 1) { if (dist < 1.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.04) / 0.1, 0, 1) * THREE.MathUtils.clamp(1.9 - dist, 0.4, 1) * frontal; }
         else if (dist < 4.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.06) / 0.22, 0, 1) * THREE.MathUtils.clamp(1.6 - dist / 3, 0.3, 1) * frontal;
       }
       // early infection: the pupils stay wide open no matter how bright the light
