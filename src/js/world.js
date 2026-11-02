@@ -219,8 +219,9 @@ export class World {
     this.box(width + 0.3, 0.25, 0.3, this.M.darkMetal, 0, height + 0.125, 0, { parent: g });
     const door = { g, L, R, open: 0, target: 0, width, auto, x, z, axis, locked: false, charOnly };
     door.set = (t) => { door.target = t; };
-    door.colliderIndex = this.colliders.length;
-    this.colliders.push(axis === 'x' ? [x - width / 2, x + width / 2, z - 0.1, z + 0.1] : [x - 0.1, x + 0.1, z - width / 2, z + width / 2]);
+    // keep the box itself: the collider list is rebuilt when upgrades change the rooms
+    door.collider = axis === 'x' ? [x - width / 2, x + width / 2, z - 0.1, z + 0.1] : [x - 0.1, x + 0.1, z - width / 2, z + width / 2];
+    this.colliders.push(door.collider);
     this.doors[name] = door;
     if (auto) this.autoDoors.push(door);
     return door;
@@ -236,7 +237,7 @@ export class World {
       const off = d.open * (d.width / 2) * 0.95;
       d.L.position.x = -d.width / 4 - off;
       d.R.position.x = d.width / 4 + off;
-      const c = this.colliders[d.colliderIndex];
+      const c = d.collider;
       const inside = playerPos && playerPos.x > c[0] - 0.35 && playerPos.x < c[1] + 0.35 && playerPos.z > c[2] - 0.35 && playerPos.z < c[3] + 0.35;
       if (d.open > 0.8) c.disabled = true;
       else if (!inside) c.disabled = false;
