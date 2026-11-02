@@ -883,8 +883,8 @@ export class Game {
     this.setObjective('The tub is filling. Wait for the bath to finish.');
     this.react(run.expects ? 'hoseExpect' : 'bathStart', 'relaxed', 0.6);
     if (run.armsUp) this.lowerArms(run);
-    // lie back with the head propped on the rim, feet toward the tap
-    const tub = { kind: 'cot', aisle: new THREE.Vector3(3.3, 0, 13.5), pos: new THREE.Vector3(4.25, 0.16, 12.4), ry: Math.PI / 2, tilt: -Math.PI / 2 + 0.3 };
+    // flat on their back in the tub, feet toward the tap
+    const tub = { kind: 'cot', aisle: new THREE.Vector3(3.3, 0, 13.5), pos: new THREE.Vector3(4.15, 0.22, 12.4), ry: Math.PI / 2 };
     ch.turnTarget = null;
     this.walkers.add(ch);
     await this.walkPath(ch, [new THREE.Vector3(1.6, 0, 13.7), tub.aisle], WALK * 0.8);

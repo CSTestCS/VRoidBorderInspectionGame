@@ -294,6 +294,17 @@ export class Player {
     for (const id of ['flashlight', 'uv', 'geiger', 'hose', 'detector']) this.T[id].position.set(0.22, -0.2 + sway, -0.38);
     this.T.geiger.position.set(0.18, -0.2 + sway, -0.36);
     const lv = this.lv;
+    // lights converge on whatever is under the reticle (the lamp sits off to the side of the view)
+    if (tool === 'flashlight' || tool === 'uv') {
+      this.camera.updateMatrixWorld();
+      const cam = this.camera.getWorldPosition(new THREE.Vector3());
+      this._aimT = (this._aimT || 0) - dt;
+      if (this._aimT <= 0) { this._aimT = 0.1; this._aimD = this.aimDistanceFn?.(cam, this.forward()) ?? 3; }
+      const cur = -this.flashLight.target.position.z || 3;
+      const d = Math.max(0.35, Math.min(8, cur + ((this._aimD ?? 3) - cur) * Math.min(1, dt * 12)));
+      this.flashLight.target.position.set(0, 0, -d);
+      this.uvLight.target.position.set(0, 0, -d);
+    }
     // pen lights are small and weak; the full-size ones are bright and wide
     const pen = lv.light < 1, uvPen = lv.light < 3;
     this.T.flashlight.scale.setScalar(pen ? 0.6 : 1);
