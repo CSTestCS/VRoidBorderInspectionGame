@@ -125,3 +125,9 @@ export const INTERRO_Q = [
   'What do you want inside the Haven?',
   "Who sent you?",
 ];
+// interrogation replies (by outcome) and a complaint when hosed far too long
+export const INTERRO_ANSWERS = {
+  harmless: ['I... I can explain.', 'Please, just listen.', 'I had no choice.'],
+  danger: ["I don't have to tell you anything.", 'You have no idea who you are dealing with.', '...'],
+};
+export const OVERHOSE = ['Are you done yet?! My skin is going wrinkly!', 'I think I am clean now. Very clean.', 'Enough! Please!'];

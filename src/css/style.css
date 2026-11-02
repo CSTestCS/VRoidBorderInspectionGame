@@ -122,3 +122,16 @@ kbd { background: #2a3237; border: 1px solid #44525b; border-bottom-width: 2px; 
 #crosshair.hose::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(160, 210, 255, .95); }
 #crosshair { border-radius: 50%; }
 #subtitle { bottom: 140px; }
+/* pronunciation & emphasis editor */
+.modal.wide { width: min(900px, 94vw); }
+.pron-editor > input { width: 100%; margin: 8px 0 2px; }
+.pron-body { max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; }
+.pron-row { display: grid; grid-template-columns: 160px 1fr 34px; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid #1d2428; font-size: 14px; }
+.pron-row.sentence { grid-template-columns: 1fr 34px; }
+.pron-row button { padding: 2px 6px; min-width: 0; }
+.pron-word { font-family: monospace; color: var(--text, #ddd); overflow: hidden; text-overflow: ellipsis; }
+.pron-line { line-height: 1.9; }
+.pron-chip { cursor: pointer; padding: 0 1px; margin: 0 -1px; border-radius: 3px; border: 1px solid transparent; }
+.pron-chip:hover { background: #24303a; }
+.pron-chip.auto { border-color: var(--accent); }
+.pron-chip.chosen { background: var(--accent); color: #111; }

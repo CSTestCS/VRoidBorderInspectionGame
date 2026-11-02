@@ -34,6 +34,23 @@ const DICT = {
   wasteland: 'W EY S T L AE N D', please: 'P L IY Z', minute: 'M IH N IH T', search: 'S ER CH', touch: 'T AH CH', young: 'Y AH NG',
   heart: 'HH AA R T', friend: 'F R EH N D', friends: 'F R EH N D Z', head: 'HH EH D', dead: 'D EH D', bread: 'B R EH D', ready: 'R EH D IY',
   great: 'G R EY T', break: 'B R EY K', move: 'M UW V', lose: 'L UW Z', whose: 'HH UW Z', idea: 'AY D IY AX', area: 'EH R IY AX',
+  coming: 'K AH M IH NG', having: 'HH AE V IH NG', living: 'L IH V IH NG', giving: 'G IH V IH NG', loving: 'L AH V IH NG',
+  being: 'B IY IH NG', ago: 'AX G OW', "aren't": 'AA R AX N T', "you'll": 'Y UW L', "you've": 'Y UW V', "we've": 'W IY V', "we'll": 'W IY L',
+  "he's": 'HH IY Z', "she's": 'SH IY Z', "couldn't": 'K UH D AX N T', "wouldn't": 'W UH D AX N T', "shouldn't": 'SH UH D AX N T',
+  worried: 'W ER IY D', worry: 'W ER IY', key: 'K IY', money: 'M AH N IY', honey: 'HH AH N IY', clothing: 'K L OW DH IH NG',
+  woman: 'W UH M AX N', women: 'W IH M AX N', child: 'CH AY L D', children: 'CH IH L D R AX N', wild: 'W AY L D',
+  hours: 'AW ER Z', hour: 'AW ER', honest: 'AA N AX S T', breathe: 'B R IY DH', machine: 'M AX SH IY N', police: 'P AX L IY S',
+  doctor: 'D AA K T ER', blood: 'B L AH D', flood: 'F L AH D', stomach: 'S T AH M AX K', toward: 'T AO R D',
+  guard: 'G AA R D', guards: 'G AA R D Z', guess: 'G EH S', building: 'B IH L D IH NG', iron: 'AY ER N', radio: 'R EY D IY OW',
+  shower: 'SH AW ER', tower: 'T AW ER', power: 'P AW ER', infection: 'IH N F EH K SH AX N',
+  radiation: 'R EY D IY EY SH AX N', decontamination: 'D IY K AX N T AE M IH N EY SH AX N', interrogation: 'IH N T EH R AX G EY SH AX N',
+  tank: 'T AE NG K', tanks: 'T AE NG K S', settlement: 'S EH T AX L M AX N T', settlements: 'S EH T AX L M AX N T S',
+  zero: 'Z IH R OW', three: 'TH R IY', five: 'F AY V', six: 'S IH K S', seven: 'S EH V AX N', eleven: 'IH L EH V AX N',
+  thirteen: 'TH ER T IY N', fourteen: 'F AO R T IY N', fifteen: 'F IH F T IY N', sixteen: 'S IH K S T IY N', seventeen: 'S EH V AX N T IY N',
+  eighteen: 'EY T IY N', nineteen: 'N AY N T IY N', forty: 'F AO R T IY', fifty: 'F IH F T IY', sixty: 'S IH K S T IY', seventy: 'S EH V AX N T IY',
+  eighty: 'EY T IY', ninety: 'N AY N T IY', oh: 'OW', centimetres: 'S EH N T IH M IY T ER Z', centimeters: 'S EH N T IH M IY T ER Z',
+  january: 'JH AE N Y UW EH R IY', february: 'F EH B R UW EH R IY', march: 'M AA R CH', april: 'EY P R IH L', may: 'M EY', june: 'JH UW N',
+  july: 'JH UH L AY', august: 'AO G AX S T', september: 'S EH P T EH M B ER', october: 'AA K T OW B ER', november: 'N OW V EH M B ER', december: 'D IH S EH M B ER',
 };
 const FUNCTION = new Set(['a', 'an', 'the', 'and', 'or', 'of', 'to', 'in', 'on', 'at', 'for', 'is', 'are', 'was', 'were', 'be', 'it', 'its', 'as', 'by', 'but', 'from', 'with', 'my', 'your', 'his', 'her', 'their', 'our', 'that', 'than', 'then', 'so', 'if', 'do', 'just', 'can', 'will', 'have', 'has', 'had', 'me', 'we', 'he', 'she', 'they', 'them', 'you']);
 
@@ -174,24 +191,46 @@ export function wordPhonemes(word) {
   return ph;
 }
 
-// -> [{ word, ph: [...], stress: index of the stressed vowel (or -1) } | { pause: '.' }]
-export function textToPhonemes(text) {
+const LET = { I: 'AY', D: 'D IY', U: 'Y UW', V: 'V IY', O: 'OW', K: 'K EY', A: 'EY', C: 'S IY', M: 'EH M', N: 'EH N', S: 'EH S', T: 'T IY', X: 'EH K S', R: 'AA R', P: 'P IY', B: 'B IY', E: 'IY', F: 'EH F', G: 'JH IY', H: 'EY CH', L: 'EH L', W: 'D AH B AX L Y UW', Y: 'W AY', Z: 'Z IY', J: 'JH EY', Q: 'K Y UW' };
+const firstStress = (ph) => ph.findIndex((p) => VOWEL_PH.has(p) && p !== 'AX');
+
+// -> [{ word, ph: [...], stress: index of the stressed vowel (or -1), emph } | { pause: '.' }]
+// opts.overrides: { lowercased word -> respelling to read instead } (CAPITALS in a respelling
+// mark its stressed part, e.g. "mar-KUSS"); opts.emphasis: index of the emphasised word,
+// counted over the text's /[A-Za-z0-9']+/ words.
+export function textToPhonemes(text, opts = {}) {
   const out = [];
-  const norm = text.replace(/(\d+)\s*cm\b/gi, '$1 centimetres').replace(/\d+/g, (d) => ' ' + num(+d) + ' ').replace(/[—–-]/g, ' , ').replace(/&/g, ' and ');
-  const tokens = norm.match(/[A-Za-z']+|[.,!?;:…]+/g) || [];
+  const ov = opts.overrides || {};
+  const tokens = text.replace(/&/g, ' and ').replace(/\s-\s/g, ' , ').match(/[A-Za-z0-9']+|[.,!?;:…—–]+|-{2,}/g) || [];
+  let wi = -1;
+  const pushWord = (word, ph, stress, emph) => out.push({ word, ph, stress: emph && stress < 0 ? firstStress(ph) : stress, emph });
   for (const tk of tokens) {
-    if (/^[.,!?;:…]+$/.test(tk)) { out.push({ pause: tk }); continue; }
+    if (!/[A-Za-z0-9]/.test(tk)) { out.push({ pause: /[—–-]/.test(tk) ? ',' : tk }); continue; }
+    wi++;
+    const emph = wi === opts.emphasis;
+    const key = tk.toLowerCase().replace(/^'+|'+$/g, '');
+    const say = ov[key];
+    if (say && say.trim()) {
+      // the player's respelling, read with the normal rules
+      const parts = say.trim().split(/[\s-]+/).filter(Boolean);
+      const marked = parts.findIndex((p) => /[A-Z]/.test(p) && /[a-z]/.test(say));
+      parts.forEach((p, k) => { const ph = wordPhonemes(p); pushWord(tk, ph, k === (marked >= 0 ? marked : 0) ? firstStress(ph) : -1, emph && k === (marked >= 0 ? marked : 0)); });
+      continue;
+    }
+    const m = tk.match(/^(\d+)([a-z]*)$/i);
+    if (m) {
+      const words = num(+m[1]).split(' ').concat(m[2] ? [m[2].toLowerCase() === 'cm' ? 'centimetres' : m[2]] : []);
+      words.forEach((w, k) => { const ph = ov[w] ? textToPhonemes(ov[w])[0]?.ph || wordPhonemes(w) : wordPhonemes(w); pushWord(w, ph, firstStress(ph), emph && k === 0); });
+      continue;
+    }
     // spell out short all-caps abbreviations (ID, UV)
     if (/^[A-Z]{2,3}$/.test(tk)) {
-      const LET = { I: 'AY', D: 'D IY', U: 'Y UW', V: 'V IY', O: 'OW', K: 'K EY', A: 'EY', C: 'S IY', M: 'EH M', N: 'EH N', S: 'EH S', T: 'T IY', X: 'EH K S', R: 'AA R', P: 'P IY', B: 'B IY', E: 'IY', F: 'EH F', G: 'JH IY', H: 'EY CH', L: 'EH L', W: 'D AH B AX L Y UW', Y: 'W AY', Z: 'Z IY', J: 'JH EY', Q: 'K Y UW' };
       const ph = tk.split('').flatMap((ch) => (LET[ch] || 'AX').split(' '));
-      out.push({ word: tk, ph, stress: ph.reduce((a, p, k) => (VOWEL_PH.has(p) ? k : a), -1) });
+      pushWord(tk, ph, ph.reduce((a, p, k) => (VOWEL_PH.has(p) ? k : a), -1), emph);
       continue;
     }
     const ph = wordPhonemes(tk);
-    const lw = tk.toLowerCase();
-    const first = ph.findIndex((p) => VOWEL_PH.has(p) && p !== 'AX');
-    out.push({ word: tk, ph, stress: FUNCTION.has(lw) ? -1 : first });
+    pushWord(tk, ph, FUNCTION.has(key) ? -1 : firstStress(ph), emph);
   }
   return out;
 }

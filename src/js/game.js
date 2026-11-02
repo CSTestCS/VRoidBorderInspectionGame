@@ -13,7 +13,8 @@ import { patchMaterial } from './vrm/materials.js';
 import { OBJECTS } from './objects.js';
 import { ObjectViewer } from './objectViewer.js';
 import { openRulebook } from './rulebook.js';
-import { REACT, GREETINGS, HANDOVER, NAME_HESITATE, NO_CONTRABAND, NO_CONTRABAND_LIE, NO_BITE, NO_BITE_LIE, INTERRO_Q } from './data.js';
+import { REACT, GREETINGS, HANDOVER, NAME_HESITATE, NO_CONTRABAND, NO_CONTRABAND_LIE, NO_BITE, NO_BITE_LIE, INTERRO_Q, INTERRO_ANSWERS, OVERHOSE } from './data.js';
+import { spokenDate } from './pron.js';
 import { drawCardFront as drawFront, drawCardUV as drawUV } from './idcard.js';
 import { storeSet } from './platform.js';
 import { PERSONALITIES } from './creator.js';
@@ -209,7 +210,7 @@ export class Game {
   }
   setObjective(html) { this.objectiveHTML = html; this.ui.objective(html); }
 
-  say(ch, text, who) {
+  say(ch, text, who, template = null) {
     if (!text) return 0;
     const female = ch?.spec ? ch.spec.sex !== 'male' : true;
     if (ch && !ch.voice && ch.spec) ch.voice = { ...makeVoiceProfile(ch.spec.seed, ch.spec.sex, ch.spec.age), ...(ch.spec.premade?.voice || {}) };
@@ -224,8 +225,8 @@ export class Game {
     const att = ch?.face?.attitude || 0;
     const emotion = ch?.face?.timed?.[ch.face.timed.length - 1]?.name || (ch?.face?.base?.sad > 0.3 ? 'sad' : att < -0.4 ? 'angry' : ch?.face?.base?.happy > 0.3 || att > 0.45 ? 'happy' : 'neutral');
     const v = ch
-      ? audio.voice(text, female, { profile: ch.voice, radio: behindGlass, pan: behindGlass ? 0 : pan, emotion })
-      : audio.voice(text, false, { profile: this.interrogatorVoice || (this.interrogatorVoice = makeVoiceProfile(4242, 'male', 'adult')), radio: true });
+      ? audio.voice(text, female, { profile: ch.voice, radio: behindGlass, pan: behindGlass ? 0 : pan, emotion, template, overrides: this.nameSay(ch) })
+      : audio.voice(text, false, { profile: this.interrogatorVoice || (this.interrogatorVoice = makeVoiceProfile(4242, 'male', 'adult')), radio: true, template });
     const dur = v.duration || text.length * 0.05;
     ch?.face?.talk(dur + 0.5, v.syllables);
     // a new line cuts off whatever this speaker was still saying
@@ -236,6 +237,15 @@ export class Game {
     if (an && text.length > 28 && !an.walking && an.pose !== 'armsUp' && Math.random() < an.personality.gesture) an.play(Math.random() < 0.6 ? 'explain' : 'explainL');
     this.ui.subtitle(who || (ch?.spec ? this.speakerName(ch) : ''), text, Math.max(2.5, dur + 1.2));
     return dur;
+  }
+  // a premade character's own pronunciation of their name
+  nameSay(ch) {
+    const pm = ch?.spec?.premade, c = ch?.spec?.card;
+    if (!pm?.say || !c) return undefined;
+    const o = {};
+    if (pm.say.first) o[c.first.toLowerCase()] = pm.say.first;
+    if (pm.say.last) o[c.last.toLowerCase()] = pm.say.last;
+    return o;
   }
   react(kind, emotion = null, w = 0.8, run = this.run) {
     const r = run;
@@ -535,15 +545,15 @@ export class Game {
       }
     };
     const Q = [
-      ['name', 'State your full name.', () => (s.problems.includes('invalidName') ? pick(NAME_HESITATE) : '') + s.answers.name + '.'],
-      ['dob', 'What is your date of birth?', () => fmtDate(s.answers.dob).replace(/^0/, '') + '.'],
-      ['origin', 'Where are you travelling from?', () => `${s.answers.origin}.`],
+      ['name', 'State your full name.', () => (s.problems.includes('invalidName') ? pick(NAME_HESITATE) : '') + s.answers.name + '.', () => (s.problems.includes('invalidName') ? '{hesitate}{first} {last}.' : '{first} {last}.')],
+      ['dob', 'What is your date of birth?', () => spokenDate(s.answers.dob) + '.', () => '{date}.'],
+      ['origin', 'Where are you travelling from?', () => `${s.answers.origin}.`, () => '{origin}.'],
       ['purpose', 'Why do you want to enter the Haven?', () => s.answers.purpose],
       ['contraband', 'Are you carrying any weapons or contraband?', () => (liarWeapon ? pick(NO_CONTRABAND_LIE) : pick(NO_CONTRABAND))],
       ['bitten', 'Have you been bitten, or exposed to radiation?', () => (infected && Math.random() < 0.7 ? pick(NO_BITE_LIE) : pick(NO_BITE))],
     ];
     const list = el('div', { class: 'col qlist' });
-    for (const [id, q, a] of Q) {
+    for (const [id, q, a, tpl] of Q) {
       list.append(el('button', {
         onclick: async () => {
           audio.click();
@@ -559,7 +569,7 @@ export class Game {
           if (id === 'bitten' && infected) nervousTell();
           if (id === 'name' && s.problems.includes('invalidName')) nervousTell();
           add('Visitor', ans);
-          this.say(run.ch, ans);
+          this.say(run.ch, ans, null, tpl ? tpl() : null);
           if (id === 'contraband' || id === 'bitten') run.ch.animator.play('shake');
           else if (id === 'purpose') run.ch.animator.play(Math.random() < 0.5 ? 'shrug' : 'explain');
           else if (Math.random() < 0.5) run.ch.animator.play('nod');
@@ -834,7 +844,7 @@ export class Game {
         else { this.react('hoseStart', 'surprised', 1); if (!run.armsUp) run.ch.animator.play('recoil'); this.favor(run, -2); }
         run.ch.animator.mood = 'wet';
       }
-      if (run.hoseTime > 45 && !run.overHosed) { run.overHosed = true; this.favor(run, -6); this.say(run.ch, 'Are you done yet?! I am freezing!'); }
+      if (run.hoseTime > 45 && !run.overHosed) { run.overHosed = true; this.favor(run, -6); this.say(run.ch, OVERHOSE[Math.floor(Math.random() * OVERHOSE.length)]); }
     }
     if (res.hitFace) {
       run.faceHits += dt;
@@ -1179,8 +1189,7 @@ export class Game {
     if (I.stage === 'waiting') {
       I.stage = 'questioning';
       const qs = INTERRO_Q.slice(0, 3);
-      const answersHarmless = ['I... I can explain.', 'Please, just listen.', 'I had no choice.'];
-      const answersDanger = ["I don't have to tell you anything.", 'You have no idea who you are dealing with.', '...'];
+      const answersHarmless = INTERRO_ANSWERS.harmless, answersDanger = INTERRO_ANSWERS.danger;
       for (let k = 0; k < qs.length; k++) {
         if (!m.el.isConnected) break;
         add('Interrogator', qs[k], 'you');

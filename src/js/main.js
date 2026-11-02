@@ -12,6 +12,8 @@ import { Game } from './game.js';
 import { Tutorial, makeTutorialVisitor } from './tutorial.js';
 import { Workshop } from './workshop.js';
 import { CharacterCreator, loadPremades } from './creator.js';
+import { loadPron } from './pron.js';
+import { openPronunciation } from './pronEditor.js';
 import { openRulebook } from './rulebook.js';
 import { audio } from './audio.js';
 import { ACTIONS, DEFAULT_KEYS, keys as KB, setKeys, keyName } from './keys.js';
@@ -46,6 +48,7 @@ class App {
     try { this.builtinDefaults = await (await fetch('../assets/models/builtin-config.json')).json(); } catch { this.builtinDefaults = {}; }
     await loadWalkClips();
     this.premades = await loadPremades();
+    await loadPron();
     this.configs = (await storeGet('modelConfigs')) || {};
     await this.loadModels();
     this.doneLoading();
@@ -89,6 +92,7 @@ class App {
       el('button', { class: save ? '' : 'primary', onclick: () => this.newGame(!!save) }, 'New Game'),
       el('button', { onclick: () => this.openWorkshop() }, 'Model Workshop (import .vrm)'),
       el('button', { onclick: () => this.openCreator() }, 'Premade Characters'),
+      el('button', { onclick: () => openPronunciation(this.ui) }, 'Pronunciation & Emphasis'),
       el('button', { onclick: () => openRulebook(this.ui) }, 'Procedures Manual'),
       el('button', { onclick: () => this.openSettings() }, 'Settings'),
       isNative ? el('button', { onclick: () => quit() }, 'Quit') : null);
@@ -188,6 +192,7 @@ class App {
       row('Visitor voices', el('select', { onchange: (e) => { s.voiceMode = e.target.value; save(); } },
         el('option', { value: 'speech', selected: s.voiceMode === 'speech' }, 'Speak the lines'),
         el('option', { value: 'babble', selected: s.voiceMode === 'babble' }, 'Gibberish babble'))),
+      row('Pronunciation', el('button', { onclick: () => openPronunciation(this.ui) }, 'Words & emphasis…')),
       row('Controls', el('button', { onclick: () => this.openControls() }, 'Key bindings…')),
       row('Fullscreen', el('button', { onclick: () => toggleFullscreen() }, 'Toggle (F11)')),
       el('div', { class: 'row' }, el('button', { onclick: () => m.close() }, 'Close'))), { title: 'Settings' });

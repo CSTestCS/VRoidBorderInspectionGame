@@ -231,7 +231,7 @@ export function generateVisitor(seed, models, opts = {}) {
     id: 'v' + seed.toString(36), seed, modelId: M.entry.id, sex, age: cfg.age, scale, heightCm, look, underwear,
     identity, card, answers, details, problems: [...problems], pockets, clothing, body,
     interrogation: idLie.length ? { dangerous, motive } : null,
-    premade: pm ? { id: pm.id, personality: pm.personality, voice: pm.voice, hidden: pm.hidden || [] } : null,
+    premade: pm ? { id: pm.id, personality: pm.personality, voice: pm.voice, hidden: pm.hidden || [], say: pm.say || null } : null,
     cureDays, nervous: idLie.length || problems.has('weapon') || problems.has('substance') || (infected && rng.chance(0.6)) ? rng.float(0.3, 0.9) : rng.float(0, 0.2),
   };
 }

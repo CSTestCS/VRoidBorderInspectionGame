@@ -216,6 +216,13 @@ export class CharacterCreator {
     else { this.controls.target.set(0, this.ch.heightM * 0.55, 0); this.camera.position.set(0, this.ch.heightM * 0.7, 3.4); }
   }
 
+  nameSay() {
+    const p = this.cur, o = {};
+    if (p.say?.first) o[p.first.toLowerCase()] = p.say.first;
+    if (p.say?.last) o[p.last.toLowerCase()] = p.say.last;
+    return o;
+  }
+
   voiceProfile() {
     const p = this.cur, M = this.modelOf(p.modelId);
     return { ...makeVoiceProfile(7, M?.cfg.sex, M?.cfg.age), ...p.voice, seed: 7 };
@@ -223,9 +230,9 @@ export class CharacterCreator {
 
   previewVoice() {
     if (!this.cur) return;
-    const lines = [`Hello, officer. My name is ${this.cur.first} ${this.cur.last}.`, 'I have come a long way. Please let me in.', 'Is all of this really necessary?'];
-    const text = lines[Math.floor(Math.random() * lines.length)];
-    const v = audio.voice(text, this.modelOf(this.cur.modelId)?.cfg.sex !== 'male', { profile: this.voiceProfile(), emotion: 'neutral', words: true });
+    // always say the name, so a "say as" spelling can be checked right away
+    const text = `My name is ${this.cur.first} ${this.cur.last}.`;
+    const v = audio.voice(text, this.modelOf(this.cur.modelId)?.cfg.sex !== 'male', { profile: this.voiceProfile(), emotion: 'neutral', overrides: this.nameSay() });
     this.ch?.face.talk(v.duration + 0.3, v.syllables);
   }
 
@@ -257,6 +264,10 @@ export class CharacterCreator {
     P.append(field('Appears in games', el('label', {}, el('input', { type: 'checkbox', checked: p.enabled !== false, onchange: (e) => { p.enabled = e.target.checked; this.markDirty(); } }), ' enabled')));
     P.append(field('First name', el('input', { value: p.first, maxlength: 20, oninput: (e) => { p.first = e.target.value.trim() || 'Unknown'; this.markDirty(); } })));
     P.append(field('Last name', el('input', { value: p.last, maxlength: 24, oninput: (e) => { p.last = e.target.value.trim() || 'Unknown'; this.markDirty(); } })));
+    // how their name should sound (read by the voice instead of the spelling)
+    p.say = p.say || { first: '', last: '' };
+    P.append(field('Say first name as', el('input', { value: p.say.first, placeholder: 'e.g. TESS-ah', oninput: (e) => { p.say.first = e.target.value; this.markDirty(); } })));
+    P.append(field('Say last name as', el('input', { value: p.say.last, placeholder: 'e.g. kwill', oninput: (e) => { p.say.last = e.target.value; this.markDirty(); } })));
     P.append(field('Model', sel(this.models.map((m) => [m.entry.id, `${m.cfg.name || m.entry.name} (${m.cfg.sex}, ${m.cfg.age})`]), p.modelId, async (v) => {
       const old = this.modelOf(p.modelId), nm = this.modelOf(v);
       p.modelId = v; p.hidden = [];

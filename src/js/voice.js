@@ -28,8 +28,9 @@ const PC = {
 };
 const PDUR = { plosive: 0.075, affric: 0.1, fric: 0.1, h: 0.05, nasal: 0.06, liquid: 0.055 };
 
-function wordSegs(text, P, rate, emoPitch, rng) {
-  const words = textToPhonemes(text);
+function wordSegs(text, P, rate, emoPitch, rng, opts = {}) {
+  const words = textToPhonemes(text, { overrides: opts.overrides, emphasis: opts.emphasis });
+  const hasEmph = words.some((w) => w.emph);
   const question = /\?\s*$/.test(text), exclaim = /!\s*$/.test(text);
   const segs = [];
   let t = 0.03;
@@ -47,14 +48,16 @@ function wordSegs(text, P, rate, emoPitch, rng) {
         const stress = k === w.stress ? 1 : 0;
         const prog = vi / Math.max(1, totalV - 1);
         const last = lastWord && !w.ph.slice(k + 1).some((p) => VOWEL_PH.has(p));
-        let d = (ph === 'AX' ? 0.05 : LONG_V.has(ph) ? 0.115 : 0.078) * (stress ? 1.3 : 0.92) * rng.float(0.92, 1.08) / rate;
+        const emph = stress && w.emph;
+        let d = (ph === 'AX' ? 0.05 : LONG_V.has(ph) ? 0.115 : 0.078) * (stress ? 1.3 : 0.92) * (emph ? 1.35 : 1) * rng.float(0.92, 1.08) / rate;
         if (last) d *= 1.5;
-        let f = P.pitch * emoPitch * (1 - 0.15 * prog) * (1 + P.range * (stress ? 1 : 0) * rng.float(0.7, 1.15)) * rng.float(0.98, 1.02);
+        // the emphasised word gets a clear pitch accent; other stresses are flattened a little
+        let f = P.pitch * emoPitch * (1 - 0.15 * prog) * (1 + P.range * (stress ? (emph ? 2.2 : hasEmph ? 0.6 : 1) : 0) * rng.float(0.85, 1.1)) * rng.float(0.98, 1.02);
         if (exclaim && stress) f *= 1.1;
         if (question && last) f *= 1.3;
         if (!question && last) f *= 0.88;
         const di = DIPH[ph];
-        segs.push({ t, d, kind: 'vowel', F: di ? di[0] : PV[ph], F2: di ? di[1] : null, vis: PVIS[ph] || 'aa', stress: ph === 'AX' ? 0 : stress, f0: f, last, reduced: ph === 'AX' });
+        segs.push({ t, d, kind: 'vowel', F: di ? di[0] : PV[ph], F2: di ? di[1] : null, vis: PVIS[ph] || 'aa', stress: ph === 'AX' ? 0 : stress, f0: f, last, reduced: ph === 'AX', emph });
         t += d; vi++;
       } else {
         const c = PC[ph];
@@ -189,7 +192,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   const emoPitch = { happy: 1.1, angry: 1.05, sad: 0.9, surprised: 1.18, scared: 1.15, neutral: 1 }[emo] || 1;
   const emoRate = { happy: 1.05, angry: 1.08, sad: 0.85, surprised: 1.1, scared: 1.15, neutral: 1 }[emo] || 1;
   const rate = P.rate * emoRate;
-  const built = opts.words ? wordSegs(text, P, rate, emoPitch, rng) : babbleSegs(text, P, rate, emoPitch, rng);
+  const built = opts.words ? wordSegs(text, P, rate, emoPitch, rng, opts) : babbleSegs(text, P, rate, emoPitch, rng);
   const { segs, T, question, exclaim } = built;
   const t0 = ctx.currentTime + 0.03;
 
@@ -281,7 +284,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
       continue;
     }
     if (s.kind === 'vowel') {
-      const lvl = (s.reduced ? 0.45 : 0.55 + 0.45 * s.stress) * amp;
+      const lvl = (s.reduced ? 0.45 : 0.55 + 0.45 * s.stress) * (s.emph ? 1.2 : 1) * amp;
       // after p/t/k the voice starts late (aspiration first): the main cue that tells p from b
       const vot = after?.kind === 'cons' && after.cons.t === 'plosive' && !after.cons.v ? Math.min(0.035, s.d * 0.3) : 0;
       upper(1, 1, a);

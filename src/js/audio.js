@@ -1,4 +1,5 @@
 import { speak, makeVoiceProfile } from './voice.js';
+import { pron, emphasisFor } from './pron.js';
 // Procedural sound effects via WebAudio.
 export class Audio {
   constructor() {
@@ -109,7 +110,10 @@ export class Audio {
   voice(text, female = true, opts = {}) {
     if (!this.ensure()) return { duration: 0, syllables: [] };
     const profile = opts.profile || makeVoiceProfile(female ? 7 : 3, female ? 'female' : 'male');
-    return speak(this.ctx, this.voiceIn || this.bus.voice, this.noise, text, { ...opts, profile, words: this.voiceMode !== 'babble' });
+    const words = this.voiceMode !== 'babble';
+    // the player's pronunciations (global, plus per-character ones such as a premade's name)
+    const extra = words ? { overrides: { ...pron.words, ...(opts.overrides || {}) }, emphasis: opts.emphasis ?? emphasisFor(text, opts.template) } : {};
+    return speak(this.ctx, this.voiceIn || this.bus.voice, this.noise, text, { ...opts, profile, words, ...extra });
   }
 }
 export const audio = new Audio();
