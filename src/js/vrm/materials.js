@@ -97,6 +97,8 @@ ${u.hvUw ? 'uniform sampler2D hvUw; uniform float hvUwOn;' : ''}
 `;
       emissiveCode = `
   totalEmissiveRadiance += hvGlowColor * texture2D(hvGlow, vMapUv).r * hvUvSpot() * 3.0;
+  // cosmetics fluoresce a pale blue-white under UV, giving away concealed skin
+  totalEmissiveRadiance += vec3(0.62, 0.7, 1.0) * clamp(texture2D(hvFx, vMapUv).b * hvFxOn * 1.3, 0.0, 1.0) * hvUvSpot() * 1.8;
 `;
       lightCode = `
   #ifdef USE_CLEARCOAT

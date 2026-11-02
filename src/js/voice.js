@@ -99,7 +99,7 @@ export function makeVoiceProfile(seed, sex = 'female', age = 'adult') {
   if (age === 'young') pitch *= 1.05;
   return {
     pitch,
-    formant: (female ? 1.16 : 1.0) * rng.float(0.94, 1.06) * (age === 'old' ? 0.97 : 1),
+    formant: (female ? 1.08 : 0.98) * rng.float(0.96, 1.04) * (age === 'old' ? 0.97 : 1),
     rate: rng.float(0.85, 1.18),
     breath: rng.float(0.04, 0.16) + (female ? 0.04 : 0) + (age === 'old' ? 0.04 : 0),
     rasp: rng.float(0.0, 0.25) + (age === 'old' ? 0.25 : 0),
@@ -114,7 +114,7 @@ function getGlottal(ctx) {
   if (glottalWave) return glottalWave;
   // harmonics falling ~ -12 dB/octave, like a real glottal pulse
   const N = 48, re = new Float32Array(N), im = new Float32Array(N);
-  for (let n = 1; n < N; n++) { im[n] = Math.pow(n, -1.45) * (n % 2 ? 1 : 0.85); }
+  for (let n = 1; n < N; n++) { im[n] = Math.pow(n, -1.75) * (n % 2 ? 1 : 0.9); }
   glottalWave = ctx.createPeriodicWave(re, im, { disableNormalization: false });
   return glottalWave;
 }
@@ -195,7 +195,12 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
 
   // ---- audio graph ----
   const out = ctx.createGain(); out.gain.value = 0.9;
-  let tail = out;
+  // tame the upper mids (where a formant synth turns nasal / heady) and the hiss above
+  const warm = ctx.createBiquadFilter(); warm.type = 'peaking'; warm.frequency.value = 2600; warm.Q.value = 0.9; warm.gain.value = -5;
+  const air = ctx.createBiquadFilter(); air.type = 'lowpass'; air.frequency.value = 6500; air.Q.value = 0.5;
+  const chest = ctx.createBiquadFilter(); chest.type = 'lowshelf'; chest.frequency.value = 300; chest.gain.value = 3;
+  out.connect(warm).connect(air).connect(chest);
+  let tail = chest;
   if (opts.radio) {
     // intercom: band-limited and slightly crunchy
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 380;
@@ -203,7 +208,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
     const sh = ctx.createWaveShaper(); const curve = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(x * 2.2) / Math.tanh(2.2); }
     sh.curve = curve;
-    out.connect(hp).connect(lp).connect(sh); tail = sh;
+    chest.connect(hp).connect(lp).connect(sh); tail = sh;
   }
   if (ctx.createStereoPanner && opts.pan != null) {
     const pn = ctx.createStereoPanner(); pn.pan.value = Math.max(-1, Math.min(1, opts.pan));
@@ -235,25 +240,25 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   // formant bank
   const F = [0, 1, 2].map((k) => {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
-    const g = ctx.createGain(); g.gain.value = [1.0, 0.55, 0.28][k];
+    const g = ctx.createGain(); g.gain.value = [1.0, 0.42, 0.15][k];
     voiced.connect(bp); asp.connect(bp); bp.connect(g).connect(out);
     return bp;
   });
   // a little low-passed direct sound for body/warmth
-  const body = ctx.createBiquadFilter(); body.type = 'lowpass'; body.frequency.value = 600 * fs;
-  const bodyG = ctx.createGain(); bodyG.gain.value = 0.06;
+  const body = ctx.createBiquadFilter(); body.type = 'lowpass'; body.frequency.value = 750 * fs;
+  const bodyG = ctx.createGain(); bodyG.gain.value = 0.16;
   voiced.connect(body).connect(bodyG).connect(out);
 
   const setF = (vals, at, glide) => {
     vals.forEach((hz, k) => {
       const f = hz * fs;
       F[k].frequency.linearRampToValueAtTime(f, at + glide);
-      F[k].Q.setValueAtTime(f / [90, 110, 160][k], at);
+      F[k].Q.setValueAtTime(f / [115, 150, 210][k], at);
     });
   };
   // initial state
   const v0 = (segs.find((s) => s.kind === 'vowel') || { F: VOWELS['@'] }).F;
-  v0.forEach((hz, k) => { F[k].frequency.setValueAtTime(hz * fs, t0); F[k].Q.setValueAtTime(hz * fs / [90, 110, 160][k], t0); });
+  v0.forEach((hz, k) => { F[k].frequency.setValueAtTime(hz * fs, t0); F[k].Q.setValueAtTime(hz * fs / [115, 150, 210][k], t0); });
   src.frequency.setValueAtTime(P.pitch * emoPitch, t0);
   fricF.frequency.setValueAtTime(4000, t0);
   const amp = (opts.emotion === 'angry' || exclaim) ? 1.15 : opts.emotion === 'sad' ? 0.8 : 1;
@@ -320,7 +325,7 @@ export function speak(ctx, destination, noiseBuffer, text, opts = {}) {
   asp.gain.linearRampToValueAtTime(0, end);
   for (const n of [src, vib, jit, nz]) { n.start(t0); n.stop(end + 0.1); }
   let stopped = false;
-  src.onended = () => { try { out.disconnect(); } catch {} };
+  src.onended = () => { try { out.disconnect(); chest.disconnect(); } catch {} };
   const stop = () => {
     if (stopped) return; stopped = true;
     const now = ctx.currentTime;

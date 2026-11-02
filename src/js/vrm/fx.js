@@ -250,7 +250,7 @@ export function paintDiscolor(s, c, n, r, color, seed) {
   }, { normal: B.n, minFacing: -0.3 });
 }
 
-export function paintBite(s, c, n, scale, rng, infected = true) {
+export function paintBite(s, c, n, scale, rng, infected = true, vis = 1) {
   const B = basis(n); const d = s.layers.cond.data; const gl = s.layers.glow?.data;
   const rx = 0.022 * scale, ry = 0.015 * scale;
   const ang = rng.float(0, Math.PI * 2);
@@ -263,11 +263,11 @@ export function paintBite(s, c, n, scale, rng, infected = true) {
     [lx, ly] = [lx * ca - ly * sa, lx * sa + ly * ca];
     const e = Math.hypot(lx / rx, ly / ry);
     // bruise halo
-    over(d, i, 0.62, 0.22, 0.24, 0.45 * Math.exp(-((e - 1) ** 2) / 0.25));
-    if (infected) over(d, i, 0.42, 0.45, 0.22, 0.35 * smoothstep(1.9, 0.9, e));
+    over(d, i, 0.62, 0.22, 0.24, 0.45 * vis * Math.exp(-((e - 1) ** 2) / 0.25));
+    if (infected) over(d, i, 0.42, 0.45, 0.22, 0.35 * vis * smoothstep(1.9, 0.9, e));
     let tooth = 0;
     for (const [tx, ty] of teeth) tooth = Math.max(tooth, smoothstep(0.0034 * scale, 0.0016 * scale, Math.hypot((lx - tx) * 0.8, ly - ty)));
-    over(d, i, 0.3, 0.03, 0.05, tooth * 0.95);
+    over(d, i, vis < 1 ? 0.62 : 0.3, vis < 1 ? 0.5 : 0.03, vis < 1 ? 0.48 : 0.05, tooth * (vis < 1 ? 0.3 : 0.95));
   }, { normal: B.n, minFacing: -0.2 });
   if (gl && infected) {
     s.paint('glow', c, rx * 2.2, (i, t) => maxCh(gl, i, smoothstep(1, 0.4, t)), { normal: B.n, minFacing: -0.2 });
@@ -354,7 +354,7 @@ export function paintUVStain(s, c, n, r, seed, tris) {
   const d = s.layers.ov.data; const gl = s.layers.glow.data;
   s.paint('ov', c, r, (i, t, dx, dy, dz) => {
     const nz = fbm(dx * 20 + seed, dy * 20 + dz * 13, 3, seed | 0);
-    over(d, i, 0.78, 0.74, 0.58, smoothstep(0.7, 0.4, t * 0.7 + (1 - nz) * 0.4) * 0.12);
+    over(d, i, 0.78, 0.74, 0.58, smoothstep(0.7, 0.4, t * 0.7 + (1 - nz) * 0.4) * 0.025);
   }, { tris });
   s.paint('glow', c, r, (i, t, dx, dy, dz) => {
     const nz = fbm(dx * 20 + seed, dy * 20 + dz * 13, 3, seed | 0);

@@ -20,6 +20,8 @@ import { PERSONALITIES } from './creator.js';
 import { CATEGORY_LABEL } from './vrm/modelConfig.js';
 import { Proxies } from './proxies.js';
 
+// visitors' walking pace (m/s)
+const WALK = 1.5;
 const CONTAMINATED = ['bio', 'bioUV', 'rad', 'chem', 'lice'];
 
 export class Game {
@@ -144,7 +146,7 @@ export class Game {
     this.queue = preset ? preset.slice() : Array.from({ length: n }, () => generateVisitor(rng.int(1, 2 ** 31 - 1), this.models));
     if (!preset && !resume) this.addPremades(rng);
     this.dayTotal = resume?.dayTotal ?? this.queue.length;
-    this.rainy = resume ? !!resume.rainy : !preset && dayNumber >= 2 && rng.chance(0.3);
+    this.rainy = resume ? !!resume.rainy : !preset && dayNumber >= 2 && rng.chance(0.08);
     this.world.setRain(this.rainy);
     this.idCompare = {};
     this.prepared?.done?.then((j) => j?.ch && j.ch !== this.run?.ch && j.ch.dispose());
@@ -289,6 +291,8 @@ export class Game {
       fate: {}, washer: [], clothesReturned: false, dispo: null, events: [], hosed: false, hoseTime: 0, faceHits: 0,
       armsUp: false, turned: false, uvUsedOnCard: false,
       favor: Math.round(new RNG((spec.seed ^ 0xfa) >>> 0).float(-12, 15) + (PERSONALITIES[spec.premade?.personality]?.favor || 0)), questions: 0,
+      // some visitors know they'll be stripped and washed; the rest find out here
+      expects: new RNG((spec.seed ^ 0xe8) >>> 0).chance(['calm', 'friendly', 'proud'].includes(spec.premade?.personality) ? 0.6 : spec.premade?.personality === 'shy' ? 0.15 : 0.35),
     };
     try {
       const ready = await this.takePrepared(spec);
@@ -306,7 +310,7 @@ export class Game {
       this.world.doors.outer.set(1);
       audio.bigDoor();
       this.setObjective('A visitor is approaching the window.');
-      await this.walkTo(ch, SPOTS.visitorWindow);
+      await this.walkTo(ch, SPOTS.visitorWindow, WALK);
       this.world.doors.outer.set(0);
       ch.root.rotation.y = 0;
       ch.animator.lookWeight = 0.7;
@@ -441,7 +445,7 @@ export class Game {
     });
   }
 
-  walkTo(ch, target, speed = 1.0) {
+  walkTo(ch, target, speed = WALK) {
     if (ch.spec) ch.animator.clipName = ch.spec.sex === 'male' ? 'male' : 'female';
     if (!ch.animator.onStep) ch.animator.onStep = () => audio.step();
     return new Promise((resolve) => { ch.walk = { target: target.clone(), speed, resolve }; ch.animator.walking = true; ch.animator.walkSpeed = speed; });
@@ -452,7 +456,7 @@ export class Game {
     const p = ch.root.position;
     const dx = w.target.x - p.x, dz = w.target.z - p.z;
     const dist = Math.hypot(dx, dz);
-    if (dist < 0.04) { ch.walk = null; ch.animator.walking = false; w.resolve(); return; }
+    if (dist < 0.04) { p.y = this.world.floorAt(p.x, p.z); ch.walk = null; ch.animator.walking = false; w.resolve(); return; }
     const want = Math.atan2(dx, dz);
     let diff = want - ch.root.rotation.y;
     while (diff > Math.PI) diff -= Math.PI * 2;
@@ -460,6 +464,7 @@ export class Game {
     ch.root.rotation.y += diff * Math.min(1, dt * 6);
     const step = Math.min(dist, w.speed * dt * (Math.abs(diff) > 1.2 ? 0.3 : 1));
     p.x += (dx / dist) * step; p.z += (dz / dist) * step;
+    p.y += (this.world.floorAt(p.x, p.z) - p.y) * Math.min(1, dt * 14); // step up onto the grate
   }
   turnTo(ch, ry) { ch.turnTarget = ry; }
 
@@ -520,7 +525,7 @@ export class Game {
     const log = el('div', { class: 'dialog-log' });
     const add = (who, text, cls = '') => { log.append(el('div', { class: cls }, el('b', {}, who + ': '), text)); log.scrollTop = 1e6; };
     const liarWeapon = s.problems.includes('weapon') || s.problems.includes('substance');
-    const infected = ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation'].some((p) => s.problems.includes(p));
+    const infected = ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation', 'fixedPupils'].some((p) => s.problems.includes(p));
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
     const nervousTell = () => {
       if (Math.random() < s.nervous) {
@@ -584,7 +589,7 @@ export class Game {
     if (!run || run.phase !== 'booth') return;
     if (!run.idStamp) { this.ui.toast('Stamp the ID card first (APPROVED or FLAG).', 'warn'); audio.error(); return; }
     audio.button();
-    this.say(run.ch, 'Okay. Where do I go?');
+    { const pool = run.expects ? REACT.whereGoExpect : REACT.whereGo; this.say(run.ch, pool[Math.floor(Math.random() * pool.length)]); }
     run.cardMesh.removeFromParent();
     run.phase = 'toDecon';
     run.ch.knownName = `${run.spec.card.first} ${run.spec.card.last}`;
@@ -594,7 +599,7 @@ export class Game {
     this.emit('sentToDecon');
     this.setObjective(`Go to <b>Decontamination</b>. ${run.ch.knownName} is walking there through the visitor corridor. Inspect each clothing item where it is worn, search it, remove it, and sort it into the <b>washer</b> or the <b>incinerator</b>. Press ${K('idcard')} to view the ID card.`);
     await sleep(700);
-    await this.walkPath(run.ch, PATHS.windowToDecon, 1.25);
+    await this.walkPath(run.ch, PATHS.windowToDecon, WALK * 1.05);
     if (this.run !== run) return;
     run.ch.turnTarget = Math.PI;
     run.proxies = new Proxies(run.ch);
@@ -719,10 +724,18 @@ export class Game {
     if (['top', 'bottom', 'onepiece'].includes(cat)) key = cat + (female ? '_f' : '_m');
     const embarrassing = (cat === 'top' && female) || cat === 'bottom' || cat === 'onepiece';
     const allOff = this.removableItems().every((o) => o.removed);
-    const pool = allOff && embarrassing ? REACT.remove.last : REACT.remove[key] || REACT.remove.accessory;
+    const first = !run.stripped; run.stripped = true;
+    // visitors who expected this are calmer, though some still find the top/bottom awkward
+    const shy = embarrassing && (!run.expects || Math.random() < (female ? 0.35 : 0.15));
+    let pool = allOff && shy ? REACT.remove.last : REACT.remove[key] || REACT.remove.accessory;
+    if (run.expects && !shy) pool = first ? REACT.stripExpect : REACT.removeExpect;
+    else if (first && !embarrassing) pool = REACT.stripSurprise;
+    const pick = (p) => p[Math.floor(Math.random() * p.length)];
+    if (first && !run.expects && embarrassing) this.say(ch, pick(REACT.stripSurprise) + ' ' + pick(pool));
     // don't talk over every single sock; plain items only sometimes get a comment
-    if (embarrassing || Math.random() < 0.6) this.say(ch, pool[Math.floor(Math.random() * pool.length)]);
-    if (embarrassing) {
+    else if (shy || first || Math.random() < (run.expects ? 0.35 : 0.6)) this.say(ch, pick(pool));
+    if (first && !run.expects) { ch.face.flash('surprised', 0.8, 1.6); an.play('recoil'); }
+    if (shy) {
       ch.face.flash(female ? 'sad' : 'surprised', female ? 0.8 : 0.5, 3);
       ch.face.flash('sad', 0.5, 4);
       an.play('lookDown');
@@ -731,7 +744,7 @@ export class Game {
       an.lookWeight = 0.15;
       clearTimeout(run.shyTimer);
       run.shyTimer = setTimeout(() => { if (run.ch) { an.lookWeight = 0.7; if (!run.armsUp) an.armStyle = an.personality.styles[0]; } }, 6000);
-      this.favor(run, female ? -7 : -4);
+      this.favor(run, (female ? -7 : -4) * (run.expects ? 0.5 : 1));
     } else {
       ch.face.flash('relaxed', 0.3, 1.2);
       this.favor(run, -1);
@@ -808,7 +821,13 @@ export class Game {
     if (res.hitSkin || res.hitHair) {
       run.hoseTime += dt;
       this.world.puddle.material.opacity = Math.min(0.75, this.world.puddle.material.opacity + dt * 0.03);
-      if (!run.hosed) { run.hosed = true; this.react('hoseStart', 'surprised', 1); run.ch.animator.shiver = 1; run.ch.animator.mood = 'wet'; if (!run.armsUp) run.ch.animator.play('recoil'); this.favor(run, -2); }
+      if (!run.hosed) {
+        run.hosed = true;
+        // the water is warm: a startle at most, no shivering
+        if (run.expects) { this.react('hoseExpect', 'relaxed', 0.6); this.favor(run, 1); }
+        else { this.react('hoseStart', 'surprised', 1); if (!run.armsUp) run.ch.animator.play('recoil'); this.favor(run, -2); }
+        run.ch.animator.mood = 'wet';
+      }
       if (run.hoseTime > 45 && !run.overHosed) { run.overHosed = true; this.favor(run, -6); this.say(run.ch, 'Are you done yet?! I am freezing!'); }
     }
     if (res.hitFace) {
@@ -924,7 +943,7 @@ export class Game {
       ch.animator.setPose('idle');
       await sleep(1200);
       door.set(1); audio.bigDoor();
-      await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z - 0.9), new THREE.Vector3(dpos.x, 0, dpos.z + 1.2)], 1.1);
+      await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z - 0.9), new THREE.Vector3(dpos.x, 0, dpos.z + 1.2)], WALK);
       door.set(0);
       this.finishRun(run, choice);
     } else if (choice === 'tank') {
@@ -937,7 +956,7 @@ export class Game {
       this.finishRun(run, 'tank', true);
       this.ui.toast(`${this.speakerName(ch)} is heading to Tank ${i + 1}. Check the tank console in the Medical Lab every day.`, 'warn', 6);
       run.phase = 'toTank';
-      await this.walkPath(ch, [...PATHS.deconToLab, ...tankApproach(i)], 1.1);
+      await this.walkPath(ch, [...PATHS.deconToLab, ...tankApproach(i)], WALK);
       this.walkers.add(ch);
       await this.moveSmooth(ch, TANK_POS[i].clone().add(new THREE.Vector3(0, 0.45, 0)), -Math.PI / 2, 1.6);
       this.walkers.delete(ch);
@@ -966,7 +985,7 @@ export class Game {
     this.setObjective('Go to the <b>Interrogation</b> room and use the console to review the questioning.');
     await sleep(1000);
     const start = run.released ? [new THREE.Vector3(0, 0, 16.6)] : [];
-    await this.walkPath(ch, [...start, ...PATHS.deconToInterro], 1.1);
+    await this.walkPath(ch, [...start, ...PATHS.deconToInterro], WALK);
     ch.turnTarget = Math.PI / 2;
     await sleep(500);
     ch.animator.setPose('sit');
@@ -982,9 +1001,9 @@ export class Game {
     const ch = run.ch;
     const door = admit ? this.world.doors.haven : this.world.doors.waste;
     const dpos = admit ? SPOTS.havenDoor : SPOTS.wasteDoor;
-    await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z - 0.9)], 1.1);
+    await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z - 0.9)], WALK);
     door.set(1); audio.bigDoor();
-    await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z + 1.2)], 1.1);
+    await this.walkPath(ch, [new THREE.Vector3(dpos.x, 0, dpos.z + 1.2)], WALK);
     door.set(0);
     ch.dispose();
   }
@@ -1103,7 +1122,7 @@ export class Game {
     const d = outcome;
     if (d === 'tank') { if (c.tank) add('ok', 'Infected/irradiated visitor sent to the cure tanks.'); else add('minor', 'Healthy visitor quarantined unnecessarily.'); }
     if (d === 'admit' || d === 'tankRelease-admit') {
-      if (c.tank && d === 'admit') add('major', `Admitted a visitor showing signs of infection or radiation (${s.problems.filter((p) => ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation'].includes(p)).map((p) => PROBLEM_LABEL[p].toLowerCase()).join(', ')}).`);
+      if (c.tank && d === 'admit') add('major', `Admitted a visitor showing signs of infection or radiation (${s.problems.filter((p) => ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation', 'fixedPupils'].includes(p)).map((p) => PROBLEM_LABEL[p].toLowerCase()).join(', ')}).`);
       if (c.interrogate) add('major', `Admitted a visitor with a false identity without questioning (${s.problems.filter((p) => ['invalidPortrait', 'invalidName', 'invalidDetails', 'forgedSeal'].includes(p)).map((p) => PROBLEM_LABEL[p].toLowerCase()).join(', ')}).`);
       if (!(c.tank && d === 'admit') && !c.interrogate) add('ok', 'Correctly admitted.');
     }
@@ -1184,7 +1203,7 @@ export class Game {
     ch.face.setBase(choice === 'admit' ? { happy: 0.3 } : { sad: 0.5, angry: 0.3 });
     this.react(choice === 'admit' ? 'admit' : 'deny', choice === 'admit' ? 'happy' : 'angry', 0.8, run);
     await sleep(1200);
-    await this.walkPath(ch, PATHS.interroToDecon, 1.1);
+    await this.walkPath(ch, PATHS.interroToDecon, WALK);
     await this.walkOut(run, choice === 'admit');
   }
 
@@ -1198,7 +1217,7 @@ export class Game {
     const t = this.tanks[i];
     if (!t) { this.ui.modal(el('p', {}, `Tank ${i + 1} is empty.`), { title: `Tank ${i + 1}` }); return; }
     const s = t.spec;
-    const infected = ['discoloredSclera', 'discoloredSkin', 'biteMarks'].some((p) => s.problems.includes(p));
+    const infected = ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'fixedPupils'].some((p) => s.problems.includes(p));
     const rad = s.problems.includes('radiation');
     const pathogen = infected ? t.level : 0;
     const radLevel = rad ? t.level : 0;
@@ -1251,7 +1270,7 @@ export class Game {
       this.walkers.add(ch);
       await this.moveSmooth(ch, tankApproach(i)[1], Math.PI / 2, 1.6);
       this.react('release', 'relaxed', 0.6, run);
-      await this.walkPath(ch, [tankApproach(i)[0], ...PATHS.labToDecon], 1.1);
+      await this.walkPath(ch, [tankApproach(i)[0], ...PATHS.labToDecon], WALK);
       ch.turnTarget = Math.PI;
       // get dressed now that they are back in the washroom
       await washing;
@@ -1296,7 +1315,7 @@ export class Game {
     this.emit('disposed', choice);
     // a severe case that was cured and simply let in remembers this officer
     const s = run.spec;
-    const severe = s.cureDays >= 3 || ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation'].filter((p) => s.problems.includes(p)).length >= 2;
+    const severe = s.cureDays >= 3 || ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation', 'fixedPupils'].filter((p) => s.problems.includes(p)).length >= 2;
     if (choice === 'admit' && severe && !run.early) { run.admire = true; this.favor(run, 100); this.react('admire', 'happy', 1, run); }
     else if (choice === 'admit') { this.favor(run, 20); this.react('admit', 'happy', 0.9, run); }
     else if (choice === 'deny') { this.favor(run, -60); this.react('deny', 'sad', 1, run); }
@@ -1612,7 +1631,9 @@ export class Game {
         const frontal = THREE.MathUtils.clamp((faceDir.dot(to.clone().negate()) - 0.25) / 0.4, 0, 1);
         if (dist < 4.5) lit = THREE.MathUtils.clamp(1 - (ang - 0.06) / 0.22, 0, 1) * THREE.MathUtils.clamp(1.6 - dist / 3, 0.3, 1) * frontal;
       }
-      ch._pupil = damp(ch._pupil ?? 1, 1 - 0.5 * lit, lit > (1 - (ch._pupil ?? 1)) * 2 ? 9 : 1.2, dt);
+      // early infection: the pupils stay wide open no matter how bright the light
+      const fixedPupils = run.spec.problems.includes('fixedPupils') && !run.spec.cured;
+      ch._pupil = fixedPupils ? damp(ch._pupil ?? 1.12, 1.12, 2, dt) : damp(ch._pupil ?? 1, 1 - 0.5 * lit, lit > (1 - (ch._pupil ?? 1)) * 2 ? 9 : 1.2, dt);
       ch.setPupil(ch._pupil);
       if (lit > 0.3) { ch.face.squint = Math.max(ch.face.squint, 0.35 + lit * 0.4); if (!run._flinched) { run._flinched = true; ch.face.flash('angry', 0.35, 1.2); ch.animator.play(Math.random() < 0.3 ? 'flinch' : 'flinchHead'); this.favor(run, -3); if (Math.random() < 0.4) this.react('flashlight', null, 0, run); } }
       else if (lit === 0) run._flinched = false;

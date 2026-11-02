@@ -57,7 +57,15 @@ export const REACT = {
   confiscate: { neutral: ['Hey, I need that!', 'Fine. Take it.', "That's for protection!", 'Come on...', "It's not what it looks like."], friendly: ['I understand. Rules are rules.', "Okay. I trust you.", 'Fair enough.'], hostile: ['Thief!', "Of course you'd take it.", "You're enjoying this, aren't you?"] },
   returnItem: { neutral: ['Thank you.', 'Thanks. That means a lot.', 'Oh, good.'], friendly: ['Thank you so much!', "You're kind. Thank you.", 'I was so worried about that.'], hostile: ['Finally.', 'Took you long enough.'] },
   burn: { neutral: ['Those are my only clothes!', "Wait - you're burning it?", 'Oh no...', 'Was it that bad?'], friendly: ["If you say so... I trust you.", 'Better safe, I guess.'], hostile: ["Unbelievable.", 'You just burn whatever you like?', "I'll freeze because of you."] },
-  hoseStart: ['Ah! Cold!', "Gah - that's freezing!", 'Hey!', 'Ack!', 'Eek! Warn me next time!', 'Cold cold cold!'],
+  hoseStart: ['Ah! ...Oh. It is warm.', 'Whoa - hey! ...okay, that is actually nice.', 'Hey!', 'Ack! Warn me next time!', 'Eek! ...huh, warm water.', 'Gah! At least it is warm.', 'Oh! That is... warmer than I expected.', 'Mm. Warm water. I forgot what that felt like.'],
+  hoseExpect: ['Warm water. I have dreamed about this.', 'Go ahead. I am ready.', 'Ahh. That is nice and warm.', 'Mm, warm. Thank you.', 'Okay, scrub away.', 'First hot water in months.'],
+  // sent from the window to decontamination
+  whereGo: ['Okay. Where do I go?', 'Which way?', 'Through there?', 'Where now?', 'Uh... which door?', 'Where are you sending me?', 'Is it that door?', 'Okay... then what?', 'Decon? What is that?', 'Do I just follow the corridor?', 'Wait, where do I go now?', 'And now?'],
+  whereGoExpect: ['Decontamination, right? I know the drill.', 'Down the corridor. Got it.', 'Wash room. I heard about this.', 'Alright. Strip and wash, yes?', 'I know where to go. Thank you.', 'Here we go, then.', 'They told us about this part at camp.'],
+  // first piece of clothing comes off
+  stripSurprise: ['Wait, you want me to undress?!', 'Everything? You are serious?', 'Nobody said anything about this!', 'Here? In front of you?', 'Is this really necessary?', 'What - my clothes too?', 'Hold on, hold on. All of it?'],
+  stripExpect: ['I know, I know. Clothes off.', 'Standard procedure, right? Go ahead.', 'I heard you would do this. Fine.', 'Let us get it over with.', 'I figured this was coming.', 'Go on. I am used to checkpoints.'],
+  removeExpect: ['Here.', 'Next one.', 'There you go.', 'Mm-hm.', 'Okay.', 'Careful with that one.', 'Take it.', 'That one is pretty dirty, sorry.'],
   hoseFace: ['Pfft - my face!', 'Mmph!', 'Hey, watch it!', 'Not the eyes!', 'I can\'t breathe!'],
   flashlight: ['Ow, my eyes!', 'Hey, that is bright!', 'Could you not?', 'Ugh, I am seeing spots.'],
   armsUp: ['Like this?', 'Okay.', 'Sure.', 'Arms up, got it.', 'How long do I hold this?'],
@@ -89,7 +97,7 @@ export const REACT = {
   },
 };
 // tank patients and questions are interspersed with idle chatter while waiting
-export const IDLE_CHATTER = ['How much longer?', 'Is it always this cold in here?', 'Do you get many people through here?', '...', 'I could really use some water.', 'Nice place. Very... clean.'];
+export const IDLE_CHATTER = ['How much longer?', 'Is it always this chilly in here?', 'Do you get many people through here?', '...', 'I could really use some water.', 'Nice place. Very... clean.'];
 
 export const MOTIVES_HARMLESS = [
   { lie: 'any', text: "The card belonged to my brother. He died on the road. Mine burned with our house - I was scared you'd turn me away without one." },

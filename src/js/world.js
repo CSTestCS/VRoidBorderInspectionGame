@@ -510,6 +510,12 @@ export class World {
     this.group.add(hemi);
   }
 
+  // walkable surface height (the decon platform is a raised grate)
+  floorAt(x, z) {
+    const d = Math.hypot(x, z - 15);
+    return d < 0.86 ? 0.06 : d < 0.92 ? 0.06 * (0.92 - d) / 0.06 : 0;
+  }
+
   setRain(on) {
     this.raining = on;
     this.rain.visible = on;

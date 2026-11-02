@@ -21,31 +21,36 @@ export function slicer(budgetMs = 6) {
     t0 = performance.now();
   };
 }
-export const PROBLEMS = ['invalidPortrait', 'invalidName', 'invalidDetails', 'forgedSeal', 'weapon', 'substance', 'contaminatedClothing', 'discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation'];
+export const PROBLEMS = ['invalidPortrait', 'invalidName', 'invalidDetails', 'forgedSeal', 'weapon', 'substance', 'contaminatedClothing', 'discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation', 'fixedPupils'];
 export const PROBLEM_LABEL = {
   invalidPortrait: 'Portrait does not match', invalidName: 'Name does not match', invalidDetails: 'Card details do not match', forgedSeal: 'Forged card (UV seal)',
   weapon: 'Carrying a weapon', substance: 'Carrying an unknown substance', contaminatedClothing: 'Contaminated clothing',
-  discoloredSclera: 'Discoloured eyes', discoloredSkin: 'Discoloured skin', biteMarks: 'Bite marks', radiation: 'Irradiated',
+  discoloredSclera: 'Discoloured eyes', discoloredSkin: 'Discoloured skin', biteMarks: 'Bite marks', radiation: 'Irradiated', fixedPupils: 'Unresponsive pupils (early infection)',
 };
 export const ID_PROBLEMS = ['invalidPortrait', 'invalidName', 'invalidDetails', 'forgedSeal'];
-export const INFECTION_PROBLEMS = ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation'];
+export const INFECTION_PROBLEMS = ['discoloredSclera', 'discoloredSkin', 'biteMarks', 'radiation', 'fixedPupils'];
 
 // 50% clean, 0.1% everything, otherwise a decaying number of problems.
+// Contaminated clothing doesn't count toward those odds: it is a common extra on top.
 export function rollProblems(rng) {
+  const core = PROBLEMS.filter((p) => p !== 'contaminatedClothing');
   const r = rng.next();
-  if (r < 0.5) return [];
-  if (r < 0.501) return PROBLEMS.slice();
-  const ks = [];
-  for (let k = 1; k < PROBLEMS.length; k++) ks.push([k, Math.pow(0.48, k - 1)]);
-  const k = rng.weighted(ks);
-  // weighted draw without replacement: contaminated clothing is the most common issue
-  const pool = PROBLEMS.map((p) => [p, p === 'contaminatedClothing' ? 2.6 : 1]);
-  const out = [];
-  while (out.length < k && pool.length) {
-    const pick = rng.weighted(pool);
-    out.push(pick);
-    pool.splice(pool.findIndex(([p]) => p === pick), 1);
+  let out;
+  if (r < 0.5) out = [];
+  else if (r < 0.501) return PROBLEMS.slice();
+  else {
+    const ks = [];
+    for (let k = 1; k < core.length; k++) ks.push([k, Math.pow(0.48, k - 1)]);
+    const k = rng.weighted(ks);
+    const pool = core.map((p) => [p, p === 'radiation' ? 1.3 : 1]);
+    out = [];
+    while (out.length < k && pool.length) {
+      const pick = rng.weighted(pool);
+      out.push(pick);
+      pool.splice(pool.findIndex(([p]) => p === pick), 1);
+    }
   }
+  if (rng.chance(0.35)) out.push('contaminatedClothing');
   return out;
 }
 
@@ -178,7 +183,7 @@ export function generateVisitor(seed, models, opts = {}) {
   for (const it of items) clothing[it.id] = it.category === 'shoes' ? (rng.chance(0.6) ? 'mud' : 'none') : rng.chance(0.28) ? 'mud' : 'none';
   if (problems.has('contaminatedClothing') && items.length) {
     const n = Math.min(items.length, rng.weighted([[1, 6], [2, 3], [3, 1]]));
-    for (const it of rng.shuffle(items).slice(0, n)) clothing[it.id] = rng.weighted([['bio', 3], ['bioUV', 2], ['rad', 2], ['chem', 1.5], ['lice', 1.5]]);
+    for (const it of rng.shuffle(items).slice(0, n)) clothing[it.id] = rng.weighted([['bio', 3], ['bioUV', 2.5], ['rad', 3], ['chem', 1.5], ['lice', 1.5]]);
   }
 
   // body
@@ -192,13 +197,17 @@ export function generateVisitor(seed, models, opts = {}) {
   if (problems.has('discoloredSkin')) {
     const n = rng.int(1, 3);
     for (let i = 0; i < n; i++) body.discolor.push(rng.pick(REG_SKIN));
-    body.makeup = allProblems || rng.chance(0.4);
+    body.makeup = allProblems || rng.chance(0.55);
   }
   if (problems.has('discoloredSclera')) body.sclera = rng.pick(['yellow', 'red', 'grey', 'black']);
-  if (problems.has('biteMarks')) { const n = rng.chance(0.3) ? 2 : 1; for (let i = 0; i < n; i++) body.bites.push(rng.pick(['forearm', 'hand', 'shoulder', 'calf', 'neck', 'upperArm', 'thigh'])); }
+  if (problems.has('biteMarks')) {
+    const n = rng.chance(0.3) ? 2 : 1;
+    for (let i = 0; i < n; i++) body.bites.push(rng.pick(['forearm', 'hand', 'shoulder', 'calf', 'neck', 'upperArm', 'thigh']));
+    body.bitesFaded = rng.chance(0.45); // old, healed-over bites: barely visible, but they still fluoresce under UV
+  }
   if (problems.has('radiation')) {
     body.rad = rng.float(1.5, 4.5);
-    if (rng.chance(0.55)) { const n = rng.int(1, 2); for (let i = 0; i < n; i++) body.burns.push(rng.pick(['forearm', 'upperArm', 'back', 'thigh', 'calf', 'abdomen', 'hand'])); }
+    if (rng.chance(0.3)) { const n = rng.int(1, 2); for (let i = 0; i < n; i++) body.burns.push(rng.pick(['forearm', 'upperArm', 'back', 'thigh', 'calf', 'abdomen', 'hand'])); }
   }
   const infected = INFECTION_PROBLEMS.some((p) => problems.has(p));
   if (rng.chance(infected ? 0.25 : 0.5)) {
@@ -215,7 +224,7 @@ export function generateVisitor(seed, models, opts = {}) {
     const lieKey = { invalidName: 'name', invalidDetails: 'details', invalidPortrait: 'portrait', forgedSeal: 'seal' }[idLie[0]];
     motive = dangerous ? rng.pick(MOTIVES_DANGEROUS).text : rng.pick(MOTIVES_HARMLESS.filter((m) => m.lie === 'any' || m.lie === lieKey)).text;
   }
-  const severity = (problems.has('discoloredSkin') ? 1 : 0) + (problems.has('discoloredSclera') ? 1 : 0) + body.bites.length + (body.rad > 3 ? 1 : 0);
+  const severity = (problems.has('fixedPupils') ? 1 : 0) + (problems.has('discoloredSkin') ? 1 : 0) + (problems.has('discoloredSclera') ? 1 : 0) + body.bites.length + (body.rad > 3 ? 1 : 0);
   const cureDays = infected ? clamp(1 + Math.ceil(severity * 0.8) + rng.int(0, 1), 2, 5) : 0;
 
   return {
@@ -269,7 +278,7 @@ export async function paintBody(ch, spec) {
     const v = F.sampleVertex(rng, null, (p, n) => n.z > 0.2 && p.y < top - 0.12);
     if (v) { { FX.paintDiscolor(F, v.p, v.n, 0.035, b.discolorColor, rng.int(1, 999)); await tick(); } if (b.makeup) { FX.paintMakeup(F, v.p, v.n, 0.05); await tick(); } }
   }
-  for (const reg of b.bites) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintBite(B, v.p, v.n, rng.float(0.9, 1.25), rng, true); await tick(); } }
+  for (const reg of b.bites) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintBite(B, v.p, v.n, rng.float(0.9, 1.25), rng, true, b.bitesFaded ? 0.18 : 1); await tick(); } }
   for (const reg of b.burns) { const v = sampleRegion(B, rng, reg); if (v) { FX.paintBurn(B, v.p, v.n, rng.float(0.04, 0.08), rng.int(1, 999)); await tick(); } }
   await paintDecoys(ch, spec, tick);
   // washable dirt
