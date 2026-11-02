@@ -78,7 +78,7 @@ const PAGES = {
       el('li', {}, el('b', {}, 'Interrogation: '), 'anyone whose identity is false or forged. Review the record on the console in the Interrogation room, then decide.'),
       el('li', {}, el('b', {}, 'Deny entry: '), 'only for visitors the interrogation found ', el('b', {}, 'dangerous'), '.')),
     el('h3', {}, 'Medical Ward'),
-    el('p', {}, 'Patients are treated on cots (slow, several days) or in cure tanks (faster). ', el('b', {}, 'Visit every occupied bed each day'), ' and treat the patient from its monitor — an untreated patient makes no progress. Release patients only at 0%: they walk back to Decontamination, dress in their washed clothes, and you decide where they go from there.'),
+    el('p', {}, 'Patients are treated on cots (slow, several days) or in cure tanks (faster). ', el('b', {}, 'Visit every occupied bed each day'), ' and treat the patient from its monitor — an untreated patient makes no progress. Release patients only at 0%: they walk back to Decontamination, dress in their washed clothes, and you decide where they go from there.')),
   'Equipment': () => el('div', {},
     el('p', {}, 'The checkpoint starts with basic equipment. Credits you earn buy upgrades at the ', el('b', {}, 'Supply Terminal'), ' on the booth desk (or from the shift report). Room installations are fitted overnight.'),
     el('ul', {},
