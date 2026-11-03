@@ -233,6 +233,7 @@ export class Character {
       sm.userData.fabric = g.fabric;
       sm.userData.itemId = g.itemId;
       sm.userData.pieceIds = g.pieceIds;
+      sm.userData.tris = Uint32Array.from(g.tris); // triangle ids in the source mesh (for painting just this part)
       sm.userData.matKey = part.key;
       mesh.parent.add(sm);
       this.ownedMaterials.push(mat);

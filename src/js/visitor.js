@@ -339,16 +339,59 @@ export function measureDirt(ch) {
   return { dirt, makeup };
 }
 
+// rough size of a set of triangles (bind pose bounding-box diagonal, metres)
+function trisExtent(surf, tris) {
+  const P = surf.bindPos;
+  let x0 = 1e9, y0 = 1e9, z0 = 1e9, x1 = -1e9, y1 = -1e9, z1 = -1e9;
+  const step = Math.max(1, Math.floor(tris.length / 400));
+  for (let k = 0; k < tris.length; k += step) for (let j = 0; j < 3; j++) {
+    const v = surf.vi(tris[k], j) * 3;
+    x0 = Math.min(x0, P[v]); x1 = Math.max(x1, P[v]); y0 = Math.min(y0, P[v + 1]); y1 = Math.max(y1, P[v + 1]); z0 = Math.min(z0, P[v + 2]); z1 = Math.max(z1, P[v + 2]);
+  }
+  return Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+}
+
+// pick triangles by surface area, so big flat parts (lenses, panels) get their fair share
+function areaSampler(surf, tris) {
+  const P = surf.bindPos, cdf = new Float64Array(tris.length);
+  let acc = 0;
+  for (let k = 0; k < tris.length; k++) {
+    const a = surf.vi(tris[k], 0) * 3, b = surf.vi(tris[k], 1) * 3, c = surf.vi(tris[k], 2) * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    acc += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) * 0.5 + 1e-9;
+    cdf[k] = acc;
+  }
+  return (rng) => {
+    const r = rng.next() * acc;
+    let lo = 0, hi = tris.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cdf[mid] < r) lo = mid + 1; else hi = mid; }
+    // stamp at the triangle's centre (a corner could sit on the frame edge)
+    const t = tris[lo], v0 = surf.vi(t, 0), v1 = surf.vi(t, 1), v2 = surf.vi(t, 2), N = surf.normals;
+    const avg = (arr, o) => (arr[v0 * 3 + o] + arr[v1 * 3 + o] + arr[v2 * 3 + o]) / 3;
+    return { v: v0, p: new THREE.Vector3(avg(P, 0), avg(P, 1), avg(P, 2)), n: new THREE.Vector3(avg(N, 0), avg(N, 1), avg(N, 2)).normalize() };
+  };
+}
+
 export async function paintClothing(ch, spec, { washed = false } = {}) {
   const tick = slicer();
   const rng = new RNG((spec.seed ^ 0xc10) >>> 0);
   for (const it of ch.items.values()) {
     const kind = spec.clothing[it.id] || 'none';
-    for (const [matKey, tris] of it.tris) {
-      const surf = ch.clothSurf.get(matKey);
-      if (!surf || !tris.length) continue;
-      if (!washed) for (let i = 0; i < 4; i++) { const v = surf.sampleFromTris(rng, tris); { FX.paintWear(surf, v.p, v.n, rng.float(0.12, 0.22), rng.int(1, 999), tris); await tick(); } }
-      const stamps = async (n, fn, r0, r1) => { for (let i = 0; i < n; i++) { const v = surf.sampleFromTris(rng, tris); fn(surf, v.p, v.n, rng.float(r0, r1), rng.int(1, 999), tris); await tick(); } };
+    // paint each part on its own: clear lenses get their own (smaller) marks so they always show
+    for (const mesh of it.meshes) {
+      const tris = mesh.userData.tris;
+      const surf = ch.clothSurf.get(mesh.userData.matKey);
+      if (!surf || !tris?.length) continue;
+      // a lens: the glass fabric, or any see-through part of a pair of glasses
+      const lens = mesh.userData.fabric === 'glass' || (/glass|spectacle|goggle|megane/i.test(it.name) && mesh.material.opacity < 0.6);
+      const size = trisExtent(surf, tris);
+      const pick = areaSampler(surf, tris);
+      const k = Math.min(1, Math.max(0.15, size / 0.45)); // marks shrink on small items
+      if (!washed && !lens) for (let i = 0; i < 4; i++) { const v = pick(rng); { FX.paintWear(surf, v.p, v.n, rng.float(0.12, 0.22) * k, rng.int(1, 999), tris); await tick(); } }
+      const stamps = async (n, fn, r0, r1) => {
+        if (lens) n = Math.max(2, Math.ceil(n * 0.75));
+        for (let i = 0; i < n; i++) { const v = pick(rng); fn(surf, v.p, v.n, rng.float(r0, r1) * (lens ? Math.min(0.5, k * 1.6) : k), rng.int(1, 999), tris); await tick(); }
+      };
       if (kind === 'mud' && !washed) await stamps(rng.int(2, 5), FX.paintMud, 0.05, 0.12);
       if (kind === 'bio') await stamps(rng.int(3, 5), FX.paintSlime, 0.05, 0.11);
       if (kind === 'bioUV') await stamps(rng.int(3, 6), FX.paintUVStain, 0.05, 0.1);

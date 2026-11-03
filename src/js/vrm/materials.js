@@ -150,6 +150,8 @@ ${u.hvSkinLayer ? 'uniform sampler2D hvSkinLayer;' : ''}
   #endif
   vec4 hvO = texture2D(hvOverlay, vMapUv) * hvOverlayOn;
   diffuseColor.rgb = mix(diffuseColor.rgb, hvO.rgb, hvO.a);
+  // dirt and residue on a clear lens are opaque, even though the lens is not
+  diffuseColor.a = max(diffuseColor.a, hvO.a);
   // wet fabric: cloth darkens; light soft cloth turns semi-transparent
   float hvCL = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
   diffuseColor.a *= 1.0 - hvClothWet * hvWetSheer * smoothstep(0.4, 0.85, hvCL) * 0.62;
@@ -157,7 +159,9 @@ ${u.hvSkinLayer ? 'uniform sampler2D hvSkinLayer;' : ''}
 `;
       roughCode = 'roughnessFactor = mix(roughnessFactor, 0.35, step(0.5, hvO.a) * hvO.a * 0.6); roughnessFactor = mix(roughnessFactor, roughnessFactor * 0.55, hvClothWet * hvWetDark);';
       emissiveCode = `
-  totalEmissiveRadiance += hvGlowColor * texture2D(hvGlow, vMapUv).r * hvUvSpot() * 3.0 * hvOverlayOn;
+  float hvGl = texture2D(hvGlow, vMapUv).r * hvUvSpot() * hvOverlayOn;
+  totalEmissiveRadiance += hvGlowColor * hvGl * 3.0;
+  diffuseColor.a = max(diffuseColor.a, min(1.0, hvGl * 1.5)); // glowing residue shows on clear lenses too
   totalEmissiveRadiance += vec3(0.25, 0.55, 0.9) * hvHighlight * (0.55 + 0.45 * sin(hvTime * 6.0));
   ${radGlow}
 `;
